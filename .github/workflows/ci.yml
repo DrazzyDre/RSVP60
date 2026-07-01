@@ -1,0 +1,147 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Backend: install deps, apply migrations to a real PostgreSQL service,
+  # prove the production safety guards, then run the smoke suite over HTTP.
+  # ---------------------------------------------------------------------------
+  backend:
+    name: Backend (PostgreSQL)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: postgresql+psycopg2://rsvp60:rsvp60@localhost:5432/rsvp60
+      JWT_SECRET: ci-test-secret-not-for-production
+      CORS_ORIGINS: http://localhost:3005,http://127.0.0.1:3005
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: rsvp60
+          POSTGRES_PASSWORD: rsvp60
+          POSTGRES_DB: rsvp60
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rsvp60 -d rsvp60"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Migrations are the source of truth for the schema — apply them against
+      # PostgreSQL (not just the SQLite dev DB) so drift is caught in CI.
+      - name: Apply Alembic migrations to PostgreSQL
+        env:
+          APP_ENV: development
+        run: alembic upgrade head
+
+      # Safety guard #1: production must refuse the shipped demo JWT secret.
+      - name: Production boot refuses the insecure default JWT_SECRET
+        run: |
+          if APP_ENV=production JWT_SECRET=dev-super-secret-change-me \
+             python -c "from app.config import Settings; Settings().validate_runtime()"; then
+            echo "FAIL: production accepted the insecure default JWT_SECRET"; exit 1
+          fi
+          echo "OK: production refused the insecure default JWT_SECRET"
+
+      # Safety guard #2: the destructive demo seed must refuse production.
+      - name: Seeder refuses to run in production
+        env:
+          APP_ENV: production
+        run: |
+          if python -m app.seed; then
+            echo "FAIL: seed ran under APP_ENV=production"; exit 1
+          fi
+          echo "OK: seed refused to run under production"
+
+      - name: Seed demo data (development)
+        env:
+          APP_ENV: development
+        run: python -m app.seed
+
+      # Start the API and run the stdlib HTTP smoke suite against Postgres.
+      - name: Start API and run smoke tests
+        env:
+          APP_ENV: development
+        run: |
+          uvicorn app.main:app --host 127.0.0.1 --port 8010 &
+          SERVER_PID=$!
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8010/health >/dev/null && break
+            sleep 1
+          done
+          python -m tests.smoke_test
+          RESULT=$?
+          kill "$SERVER_PID" 2>/dev/null || true
+          exit $RESULT
+
+  # ---------------------------------------------------------------------------
+  # Frontend: install, typecheck, lint (if configured), and a real Next build.
+  # ---------------------------------------------------------------------------
+  frontend:
+    name: Frontend (typecheck + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint (if configured)
+        run: |
+          if ls .eslintrc* eslint.config.* >/dev/null 2>&1; then
+            npm run lint
+          else
+            echo "No ESLint config present; skipping (next.config sets eslint.ignoreDuringBuilds)."
+          fi
+
+      - name: Build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8010
+        run: npm run build
+
+  # ---------------------------------------------------------------------------
+  # Docker: validate the compose file. A full `up --build` is intentionally not
+  # run here — it is documented as a manual local step (see README).
+  # ---------------------------------------------------------------------------
+  docker:
+    name: Docker Compose config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate docker-compose.yml
+        run: docker compose config
