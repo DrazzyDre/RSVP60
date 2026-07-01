@@ -1,0 +1,78 @@
+// Thin fetch wrapper around the RSVP60 FastAPI backend.
+
+export const API_URL =
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:8000";
+
+const TOKEN_KEY = "rsvp60_token";
+
+export function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token: string) {
+  if (typeof window !== "undefined") window.localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearToken() {
+  if (typeof window !== "undefined") window.localStorage.removeItem(TOKEN_KEY);
+}
+
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+interface RequestOptions extends RequestInit {
+  auth?: boolean;
+}
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const { auth, headers, ...rest } = options;
+  const finalHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(headers as Record<string, string>),
+  };
+
+  if (auth) {
+    const token = getToken();
+    if (token) finalHeaders["Authorization"] = `Bearer ${token}`;
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, { ...rest, headers: finalHeaders });
+  } catch {
+    throw new ApiError(
+      "Could not reach the server. Is the backend running?",
+      0
+    );
+  }
+
+  if (!res.ok) {
+    let detail = `Request failed (${res.status})`;
+    try {
+      const body = await res.json();
+      if (typeof body.detail === "string") detail = body.detail;
+      else if (Array.isArray(body.detail) && body.detail[0]?.msg)
+        detail = body.detail[0].msg;
+    } catch {
+      /* ignore */
+    }
+    throw new ApiError(detail, res.status);
+  }
+
+  if (res.status === 204) return undefined as T;
+  return (await res.json()) as T;
+}
+
+export const api = {
+  get: <T>(path: string, auth = false) => request<T>(path, { method: "GET", auth }),
+  post: <T>(path: string, body?: unknown, auth = false) =>
+    request<T>(path, { method: "POST", body: JSON.stringify(body ?? {}), auth }),
+  patch: <T>(path: string, body?: unknown, auth = true) =>
+    request<T>(path, { method: "PATCH", body: JSON.stringify(body ?? {}), auth }),
+};

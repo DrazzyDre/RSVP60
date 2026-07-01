@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 40 33% 98%;
+  --foreground: 232 40% 15%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 232 40% 15%;
+
+  --primary: 231 55% 27%; /* royal blue */
+  --primary-foreground: 40 33% 98%;
+
+  --secondary: 43 55% 54%; /* gold */
+  --secondary-foreground: 232 40% 15%;
+
+  --muted: 40 20% 94%;
+  --muted-foreground: 232 12% 42%;
+
+  --accent: 43 60% 90%;
+  --accent-foreground: 232 40% 20%;
+
+  --border: 232 15% 88%;
+  --input: 232 15% 85%;
+  --ring: 231 55% 40%;
+
+  --radius: 0.75rem;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle celebratory gradient used on the public invite page. */
+.invite-gradient {
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(200, 162, 75, 0.18), transparent 60%),
+    linear-gradient(180deg, #f7f4ec 0%, #f2eee2 100%);
+}
+
+.gold-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #c8a24b, transparent);
+}
