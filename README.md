@@ -29,6 +29,9 @@ a single event.
 - [Environment variables](#environment-variables)
 - [Demo credentials & invite links](#demo-credentials--invite-links)
 - [Testing](#testing)
+- [Final local verification](#final-local-verification)
+- [Continuous integration (CI)](#continuous-integration-ci)
+- [Developer shortcuts (Makefile)](#developer-shortcuts-makefile)
 - [API reference](#api-reference)
 - [Deployment notes](#deployment-notes)
 - [Security & operational notes](#security--operational-notes)
@@ -285,6 +288,97 @@ It asserts: event scoping, invite-tree scoping, secure token resolution, no
 tree-name leak on the public endpoint, duplicate-RSVP-by-phone, seat
 release/recalculation on update, accepted-vs-waitlisted seat counting, admin
 promotion seat validation, and per-event CSV export.
+
+---
+
+## Final local verification
+
+Before shipping changes, run the full stack end to end on your machine. This is
+the definitive "does everything still work together against Postgres" check.
+
+**One command (Docker required):**
+
+```bash
+bash scripts/verify_local.sh      # or: make verify
+```
+
+It builds and starts the stack, waits for the backend to become healthy, seeds
+demo data, then checks the backend health endpoint, a public invite token, the
+frontend home page, admin login, and finally runs the smoke suite **inside the
+backend container** against Postgres. It prints `PASS`/`FAIL` per check and
+leaves the stack running so you can click around; exit code is non-zero if any
+check fails.
+
+**Or run the same flow manually** (documented ports: backend `8010`, frontend
+`3005`, postgres `5432`):
+
+```bash
+# 1. Build & start everything (Postgres + FastAPI + Next.js)
+docker compose up --build -d
+
+# 2. Reset + seed demo data inside the backend container
+docker compose exec backend python -m app.seed
+
+# 3. Backend health
+curl http://localhost:8010/health
+
+# 4. Frontend is serving
+curl -I http://localhost:3005
+
+# 5. Public invite page resolves (never exposes the tree name)
+curl http://localhost:8010/api/invites/fam-demo-token-000000000001
+
+# 6. Admin login works
+curl -X POST http://localhost:8010/api/admin/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@rsvp60.com","password":"admin123"}'
+
+# 7. Smoke tests against Postgres
+docker compose exec backend python -m tests.smoke_test
+
+# Tear down (add -v to also wipe the database volume)
+docker compose down
+```
+
+---
+
+## Continuous integration (CI)
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request
+to `main` with three jobs:
+
+- **Backend (PostgreSQL)** — spins up a `postgres:15` service, installs
+  dependencies, applies Alembic migrations **against Postgres** (not just the
+  SQLite dev DB), then proves the two production guards: the app refuses to boot
+  in production with the insecure default `JWT_SECRET`, and `app.seed` refuses
+  to run under `APP_ENV=production`. Finally it seeds a dev database, starts the
+  API, and runs the smoke suite over HTTP.
+- **Frontend** — `npm ci`, `npm run typecheck` (`tsc --noEmit`), lint if an
+  ESLint config is present, and a real `next build`.
+- **Docker** — validates `docker-compose.yml` with `docker compose config`. A
+  full `docker compose up --build` is intentionally left as the manual
+  [Final local verification](#final-local-verification) step rather than run in
+  CI, to keep pipelines fast.
+
+---
+
+## Developer shortcuts (Makefile)
+
+Common tasks are wrapped in a `Makefile` (run `make help` for the full list).
+Requires `make` — on Windows use Git Bash + make, WSL, or run the underlying
+commands directly.
+
+| Command           | What it does                                                |
+| ----------------- | ----------------------------------------------------------- |
+| `make migrate`    | Apply Alembic migrations                                    |
+| `make seed`       | Reset + seed the database (destructive, dev only)           |
+| `make test`       | Run backend smoke tests against a running API               |
+| `make fe-check`   | Typecheck the frontend (`tsc --noEmit`)                     |
+| `make fe-build`   | Production build of the frontend                            |
+| `make up`         | `docker compose up --build`                                 |
+| `make down`       | Stop the stack (keep the DB volume)                         |
+| `make reset`      | Stop the stack and wipe the Postgres volume                 |
+| `make verify`     | Guided end-to-end local verification                        |
 
 ---
 
