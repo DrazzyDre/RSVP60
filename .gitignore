@@ -1,0 +1,25 @@
+# ---- Python / backend ----
+backend/.venv/
+backend/venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+backend/.env
+backend/rsvp60.db
+backend/install.log
+
+# ---- Node / frontend ----
+node_modules/
+.next/
+out/
+frontend/.env.local
+*.tsbuildinfo
+next-env.d.ts.timestamp
+npm-debug.log*
+yarn-error.log*
+
+# ---- Editors / OS ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
