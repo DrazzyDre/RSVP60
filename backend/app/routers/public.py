@@ -15,11 +15,13 @@ from ..schemas import (
     RsvpCreateResponse,
     RsvpPublicOut,
 )
+from ..ratelimit import rate_limit_rsvp
 from ..seat_logic import (
     allowed_seat_options,
     evaluate_new_rsvp,
     remaining_seats,
 )
+from ..utils import normalize_phone
 
 router = APIRouter(prefix="/api/invites", tags=["public"])
 
@@ -68,7 +70,12 @@ def get_invite(token: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{token}/rsvp", response_model=RsvpCreateResponse)
-def submit_rsvp(token: str, payload: RsvpCreate, db: Session = Depends(get_db)):
+def submit_rsvp(
+    token: str,
+    payload: RsvpCreate,
+    db: Session = Depends(get_db),
+    _: None = Depends(rate_limit_rsvp),
+):
     tree = _get_tree_by_token(db, token)
 
     if not _is_accepting(tree, tree.event):
@@ -77,7 +84,12 @@ def submit_rsvp(token: str, payload: RsvpCreate, db: Session = Depends(get_db)):
             detail="RSVPs for this invitation are currently closed. Please contact the host.",
         )
 
-    phone = payload.phone.strip()
+    phone = normalize_phone(payload.phone)
+    if len(phone.lstrip("+")) < 7:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Please enter a valid phone number so the host can reach you.",
+        )
     attending = payload.attending
     requested = payload.seats_requested if attending else 0
 

@@ -10,8 +10,11 @@ RSVPs (accepted / declined / waitlisted) dated over the last ~12 days so the
 dashboard charts have something to show.
 """
 
+import os
+import sys
 from datetime import datetime, timedelta
 
+from .config import settings
 from .database import Base, SessionLocal, engine
 from .models import Admin, Event, InviteTree, Rsvp
 from .security import hash_password
@@ -30,8 +33,29 @@ def _dt(days_ago: int, hour: int = 12) -> datetime:
     return datetime.utcnow() - timedelta(days=days_ago) + timedelta(hours=hour - 12)
 
 
+def _guard_production() -> None:
+    """Refuse to run the destructive demo seed in production.
+
+    The seed DROPS ALL TABLES and creates demo admins (admin@rsvp60.com /
+    admin123). That must never happen silently against a production database.
+    An explicit override (ALLOW_PROD_SEED=1) is required to proceed.
+    """
+    override = os.getenv("ALLOW_PROD_SEED", "").lower() in ("1", "true", "yes")
+    if settings.is_production and not override:
+        print(
+            "REFUSING TO SEED: APP_ENV=production.\n"
+            "This command drops all tables and creates demo admin accounts, so it "
+            "is disabled in production.\n"
+            "If you REALLY intend to seed this database, re-run with "
+            "ALLOW_PROD_SEED=1 set.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 def seed() -> None:
-    print("Dropping and recreating all tables...")
+    _guard_production()
+    print(f"[APP_ENV={settings.app_env}] Dropping and recreating all tables...")
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
 
