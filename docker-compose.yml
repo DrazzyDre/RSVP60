@@ -1,0 +1,54 @@
+# RSVP60 — local development stack (PostgreSQL + FastAPI + Next.js)
+#
+#   docker compose up --build        # start everything
+#   docker compose exec backend python -m app.seed   # load demo data
+#
+# Ports (host):  backend 8010 · frontend 3005 · postgres 5432
+# If 5432 is already in use locally, change the host side of the db "ports"
+# mapping below (e.g. "5433:5432") — the backend talks to Postgres over the
+# internal Docker network on 5432 regardless.
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: rsvp60
+      POSTGRES_PASSWORD: rsvp60
+      POSTGRES_DB: rsvp60
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rsvp60 -d rsvp60"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    # Run migrations (source of truth for the schema), then start the API.
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8010"
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+psycopg2://rsvp60:rsvp60@db:5432/rsvp60
+      JWT_SECRET: dev-super-secret-change-me
+      SITE_URL: http://localhost:3005
+      CORS_ORIGINS: http://localhost:3005,http://127.0.0.1:3005
+    ports:
+      - "8010:8010"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8010
+    ports:
+      - "3005:3005"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

@@ -1,0 +1,11 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+# Never bake local secrets or the dev SQLite DB into the image
+.env
+rsvp60.db
+_*.db
+install.log
+.git
