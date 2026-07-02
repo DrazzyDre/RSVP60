@@ -6,6 +6,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from .roles import ROLES
+from .security import validate_password_strength
 
 
 # --------------------------------------------------------------------------- #
@@ -41,7 +42,7 @@ class AdminCreate(BaseModel):
     email: EmailStr
     full_name: str = Field("", max_length=200)
     role: str = Field(...)
-    password: str = Field(..., min_length=8, max_length=200)
+    password: str = Field(..., max_length=200)
 
     @field_validator("role")
     @classmethod
@@ -49,6 +50,11 @@ class AdminCreate(BaseModel):
         if v not in ROLES:
             raise ValueError(f"role must be one of {ROLES}")
         return v
+
+    @field_validator("password")
+    @classmethod
+    def _strong_password(cls, v: str) -> str:
+        return validate_password_strength(v)
 
 
 class AdminUpdate(BaseModel):
@@ -65,13 +71,23 @@ class AdminUpdate(BaseModel):
 
 class AdminPasswordSet(BaseModel):
     """Owner sets/resets another admin's password."""
-    password: str = Field(..., min_length=8, max_length=200)
+    password: str = Field(..., max_length=200)
+
+    @field_validator("password")
+    @classmethod
+    def _strong_password(cls, v: str) -> str:
+        return validate_password_strength(v)
 
 
 class AdminSelfPasswordUpdate(BaseModel):
     """A logged-in admin changes their own password."""
     current_password: str = Field(..., min_length=1)
-    new_password: str = Field(..., min_length=8, max_length=200)
+    new_password: str = Field(..., max_length=200)
+
+    @field_validator("new_password")
+    @classmethod
+    def _strong_password(cls, v: str) -> str:
+        return validate_password_strength(v)
 
 
 # --------------------------------------------------------------------------- #
