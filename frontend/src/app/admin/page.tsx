@@ -7,7 +7,10 @@ import {
   CalendarCheck,
   CheckCircle2,
   Clock,
+  DoorOpen,
   Layers,
+  Percent,
+  UserCheck,
   UserX,
   Users,
 } from "lucide-react";
@@ -133,6 +136,44 @@ export default function DashboardPage() {
           icon={<Layers className="h-5 w-5" />}
           href="/admin/invite-trees"
         />
+      </div>
+
+      {/* Event-day check-in */}
+      <div>
+        <h2 className="mb-3 font-serif text-lg font-semibold text-royal">
+          Event-day check-in
+        </h2>
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatCard
+            label="Checked-in guests"
+            value={summary.checked_in_rsvps}
+            accent="green"
+            hint={`of ${summary.accepted_rsvps} accepted`}
+            icon={<UserCheck className="h-5 w-5" />}
+            href="/admin/check-in"
+          />
+          <StatCard
+            label="Checked-in seats"
+            value={summary.checked_in_seats}
+            accent="royal"
+            icon={<DoorOpen className="h-5 w-5" />}
+            href="/admin/check-in"
+          />
+          <StatCard
+            label="Not yet checked in"
+            value={summary.confirmed_not_checked_in}
+            accent="amber"
+            icon={<Clock className="h-5 w-5" />}
+            href="/admin/check-in"
+          />
+          <StatCard
+            label="Check-in rate"
+            value={`${Math.round(summary.check_in_rate * 100)}%`}
+            accent="gold"
+            icon={<Percent className="h-5 w-5" />}
+            href="/admin/check-in"
+          />
+        </div>
       </div>
 
       {/* Charts */}

@@ -156,6 +156,11 @@ export interface RsvpAdmin {
   seats_requested: number;
   note_to_celebrant: string | null;
   dietary_note: string | null;
+  checked_in_at: string | null;
+  checked_in_seats: number | null;
+  checked_in_by_admin_id: string | null;
+  checked_in_by: string | null;
+  check_in_token: string;
   created_at: string;
   updated_at: string;
 }
@@ -171,6 +176,10 @@ export interface DashboardSummary {
   cancelled_rsvps: number;
   exhausted_trees: number;
   total_trees: number;
+  checked_in_rsvps: number;
+  checked_in_seats: number;
+  confirmed_not_checked_in: number;
+  check_in_rate: number;
 }
 
 export interface ReadinessItem {

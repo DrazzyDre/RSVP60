@@ -12,6 +12,7 @@ import {
   ScrollText,
   Settings,
   ShieldCheck,
+  UserCheck,
   Users,
   Loader2,
 } from "lucide-react";
@@ -35,6 +36,7 @@ const NAV: NavItem[] = [
   { href: "/admin/events", label: "Events", icon: CalendarRange },
   { href: "/admin/invite-trees", label: "Invite Trees", icon: ListTree },
   { href: "/admin/rsvps", label: "RSVPs", icon: Users },
+  { href: "/admin/check-in", label: "Check-in", icon: UserCheck },
   { href: "/admin/admins", label: "Admins", icon: ShieldCheck, ownerOnly: true },
   { href: "/admin/audit", label: "Audit", icon: ScrollText, ownerOnly: true },
   { href: "/admin/settings", label: "Settings", icon: Settings },
