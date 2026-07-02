@@ -8,7 +8,7 @@ import csv
 import io
 from collections import defaultdict
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -16,7 +16,13 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..database import get_db
 from ..deps import get_current_admin, log_action
-from ..models import Admin, Event, InviteTree, Rsvp
+from ..models import Admin, Event, InviteTree, Rsvp, new_uuid
+from ..storage import (
+    ALLOWED_IMAGE_TYPES,
+    StorageError,
+    get_storage,
+    resolve_flyer_url,
+)
 from ..schemas import (
     AdminOut,
     DashboardCharts,
@@ -87,6 +93,7 @@ def _serialize_event(db: Session, event: Event) -> EventAdminOut:
     out = EventAdminOut.model_validate(event)
     out.tree_count = tree_count
     out.rsvp_count = rsvp_count
+    out.flyer_image_url = resolve_flyer_url(event.flyer_storage_path, event.flyer_url)
     return out
 
 
@@ -139,6 +146,90 @@ def update_event(
     log_action(db, admin, "update", "event", event.id, {"fields": list(data)})
     db.commit()
     db.refresh(event)
+    return _serialize_event(db, event)
+
+
+# --------------------------------------------------------------------------- #
+# Flyer upload / removal
+# --------------------------------------------------------------------------- #
+def _detect_image_type(file: UploadFile) -> str | None:
+    """Return the accepted content type, or None if unsupported.
+
+    Prefers the declared content type; falls back to the filename extension so
+    a browser that sends a generic type still works.
+    """
+    content_type = (file.content_type or "").lower().split(";")[0].strip()
+    if content_type in ALLOWED_IMAGE_TYPES:
+        return content_type
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower()
+    ext_map = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+    return ext_map.get(ext)
+
+
+@router.post("/events/{event_id}/flyer", response_model=EventAdminOut)
+async def upload_flyer(
+    event_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(get_current_admin),
+):
+    event = _get_event_or_404(db, event_id)
+
+    content_type = _detect_image_type(file)
+    if content_type is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported image type. Please upload a JPG, PNG or WebP image.",
+        )
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The uploaded file is empty. Please choose an image.",
+        )
+    if len(data) > settings.max_upload_bytes:
+        max_mb = settings.max_upload_bytes / (1024 * 1024)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Image is too large. The maximum size is {max_mb:.0f} MB.",
+        )
+
+    ext = ALLOWED_IMAGE_TYPES[content_type]
+    key = f"flyers/{event_id}/{new_uuid()}.{ext}"
+    storage = get_storage()
+    try:
+        storage.save(key, data, content_type)
+    except StorageError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not store the flyer right now. Please try again.",
+        )
+
+    previous = event.flyer_storage_path
+    event.flyer_storage_path = key
+    if previous and previous != key:
+        storage.delete(previous)
+
+    log_action(db, admin, "upload_flyer", "event", event.id, {"key": key})
+    db.commit()
+    db.refresh(event)
+    return _serialize_event(db, event)
+
+
+@router.delete("/events/{event_id}/flyer", response_model=EventAdminOut)
+def remove_flyer(
+    event_id: str,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(get_current_admin),
+):
+    event = _get_event_or_404(db, event_id)
+    if event.flyer_storage_path:
+        get_storage().delete(event.flyer_storage_path)
+        event.flyer_storage_path = ""
+        log_action(db, admin, "remove_flyer", "event", event.id, {})
+        db.commit()
+        db.refresh(event)
     return _serialize_event(db, event)
 
 

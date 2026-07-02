@@ -13,11 +13,22 @@ export type EventType =
 
 export type EventStatus = "draft" | "active" | "closed" | "archived";
 
+export type ThemePreset =
+  | "elegant"
+  | "classic"
+  | "joyful"
+  | "minimal"
+  | "formal";
+
+export type BackgroundPreset = "" | "soft" | "plain" | "festive";
+
 export interface EventPublic {
   name: string;
   event_type: EventType;
   host_or_celebrant_name: string;
   title: string;
+  invite_headline: string;
+  invite_message: string;
   description: string;
   event_date: string | null;
   event_time: string;
@@ -28,7 +39,11 @@ export interface EventPublic {
   gift_details: string;
   contact_phone: string;
   flyer_url: string;
+  flyer_image_url: string;
   rsvp_deadline: string | null;
+  theme_preset: ThemePreset;
+  accent_color: string;
+  background_preset: BackgroundPreset;
 }
 
 export interface EventAdmin {
@@ -37,6 +52,8 @@ export interface EventAdmin {
   event_type: EventType;
   host_or_celebrant_name: string;
   title: string;
+  invite_headline: string;
+  invite_message: string;
   description: string;
   event_date: string | null;
   event_time: string;
@@ -47,7 +64,13 @@ export interface EventAdmin {
   gift_details: string;
   contact_phone: string;
   flyer_url: string;
+  flyer_storage_path: string;
+  flyer_image_url: string;
   rsvp_deadline: string | null;
+  auto_close_rsvp: boolean;
+  theme_preset: ThemePreset;
+  accent_color: string;
+  background_preset: BackgroundPreset;
   status: EventStatus;
   tree_count: number;
   rsvp_count: number;

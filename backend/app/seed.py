@@ -78,6 +78,14 @@ def seed() -> None:
             event_type="birthday",
             host_or_celebrant_name="Chief Emmanuel Adeyemi",
             title="A Diamond Celebration at 60",
+            invite_headline="You are warmly invited",
+            invite_message=(
+                "It would be our honour to have you join the family as we mark "
+                "this milestone. Come early, stay late, and celebrate with us."
+            ),
+            theme_preset="elegant",
+            background_preset="soft",
+            auto_close_rsvp=True,
             description=(
                 "With hearts full of gratitude to God, we joyfully invite you to "
                 "celebrate six remarkable decades of grace, love and laughter. "
@@ -184,6 +192,14 @@ def seed() -> None:
             event_type="wedding",
             host_or_celebrant_name="Tolu & Bisi",
             title="Two Hearts, One Love",
+            invite_headline="Together forever",
+            invite_message=(
+                "With joyful hearts, we invite you to witness our vows and "
+                "celebrate the beginning of our forever."
+            ),
+            theme_preset="classic",
+            background_preset="plain",
+            auto_close_rsvp=True,
             description=(
                 "Together with their families, Tolu and Bisi request the honour of "
                 "your presence as they exchange vows and begin their journey as one."

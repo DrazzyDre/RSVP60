@@ -1,7 +1,20 @@
 // Thin fetch wrapper around the RSVP60 FastAPI backend.
 
 export const API_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:8000";
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:8010";
+
+/**
+ * Resolve an image URL returned by the API.
+ *
+ * Uploaded flyers come back as app-relative paths ("/media/..."), which must be
+ * served from the API origin. External / Supabase URLs are already absolute and
+ * are returned unchanged.
+ */
+export function resolveMediaUrl(url: string | null | undefined): string {
+  if (!url) return "";
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return `${API_URL}${url.startsWith("/") ? "" : "/"}${url}`;
+}
 
 const TOKEN_KEY = "rsvp60_token";
 
@@ -36,6 +49,11 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     "Content-Type": "application/json",
     ...(headers as Record<string, string>),
   };
+
+  // For multipart uploads let the browser set Content-Type (with boundary).
+  if (rest.body instanceof FormData) {
+    delete finalHeaders["Content-Type"];
+  }
 
   if (auth) {
     const token = getToken();
@@ -75,4 +93,8 @@ export const api = {
     request<T>(path, { method: "POST", body: JSON.stringify(body ?? {}), auth }),
   patch: <T>(path: string, body?: unknown, auth = true) =>
     request<T>(path, { method: "PATCH", body: JSON.stringify(body ?? {}), auth }),
+  del: <T>(path: string, auth = true) =>
+    request<T>(path, { method: "DELETE", auth }),
+  upload: <T>(path: string, formData: FormData, auth = true) =>
+    request<T>(path, { method: "POST", body: formData, auth }),
 };

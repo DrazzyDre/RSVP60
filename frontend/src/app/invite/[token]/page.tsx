@@ -13,7 +13,7 @@ import {
   Shirt,
   CalendarPlus,
 } from "lucide-react";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, resolveMediaUrl } from "@/lib/api";
 import type { InvitePublic } from "@/lib/types";
 import {
   eventTypeLabel,
@@ -70,6 +70,7 @@ export default function InvitePage() {
   const { event } = invite;
   const gcal = googleCalendarUrl(event);
   const whatsappNumber = event.contact_phone.replace(/[^\d]/g, "");
+  const flyer = resolveMediaUrl(event.flyer_image_url);
 
   return (
     <main className="invite-gradient min-h-screen pb-16">
@@ -77,10 +78,10 @@ export default function InvitePage() {
         {/* Flyer / hero */}
         <section className="animate-fade-up pt-8">
           <div className="overflow-hidden rounded-3xl border border-gold/30 bg-white shadow-lg">
-            {event.flyer_url ? (
+            {flyer ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={event.flyer_url}
+                src={flyer}
                 alt={`${event.host_or_celebrant_name || event.name} invitation flyer`}
                 className="h-auto w-full object-cover"
               />

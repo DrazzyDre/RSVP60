@@ -5,10 +5,12 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .database import Base, engine
 from .routers import admin, public
+from .storage import ensure_local_upload_dir
 
 logger = logging.getLogger("rsvp60")
 
@@ -25,6 +27,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve locally-uploaded flyers from /media when using the local storage
+# backend. With the Supabase backend, images are served by Supabase instead.
+_local_upload_dir = ensure_local_upload_dir()
+if _local_upload_dir:
+    app.mount("/media", StaticFiles(directory=_local_upload_dir), name="media")
 
 
 @app.on_event("startup")

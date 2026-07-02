@@ -7,6 +7,11 @@ __pycache__/
 backend/.env
 backend/rsvp60.db
 backend/install.log
+# Locally-uploaded flyers/images (local storage backend).
+backend/uploads/
+backend/_verify*.db
+backend/_mig_test.db
+backend/_seed_test.db
 
 # ---- Node / frontend ----
 node_modules/

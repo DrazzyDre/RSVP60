@@ -21,6 +21,7 @@ from ..seat_logic import (
     evaluate_new_rsvp,
     remaining_seats,
 )
+from ..storage import resolve_flyer_url
 from ..utils import normalize_phone
 
 router = APIRouter(prefix="/api/invites", tags=["public"])
@@ -60,8 +61,13 @@ def get_invite(token: str, db: Session = Depends(get_db)):
     accepting = _is_accepting(tree, event)
     options = allowed_seat_options(tree, remaining) if accepting else []
 
+    event_public = EventPublic.model_validate(event)
+    event_public.flyer_image_url = resolve_flyer_url(
+        event.flyer_storage_path, event.flyer_url
+    )
+
     return InvitePublic(
-        event=EventPublic.model_validate(event),
+        event=event_public,
         accepting_rsvps=accepting,
         plus_one_allowed=tree.max_extra_guests,
         seat_options=options,

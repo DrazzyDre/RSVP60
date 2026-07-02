@@ -1,5 +1,6 @@
 """Pydantic request/response schemas."""
 
+import re
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -36,6 +37,8 @@ class EventPublic(BaseModel):
     event_type: str
     host_or_celebrant_name: str
     title: str
+    invite_headline: str = ""
+    invite_message: str = ""
     description: str
     event_date: datetime | None
     event_time: str
@@ -46,7 +49,13 @@ class EventPublic(BaseModel):
     gift_details: str
     contact_phone: str
     flyer_url: str
+    # Resolved display image (uploaded flyer or external URL). Set by the router.
+    flyer_image_url: str = ""
     rsvp_deadline: datetime | None
+    # Invite presentation.
+    theme_preset: str = "elegant"
+    accent_color: str = ""
+    background_preset: str = ""
 
 
 class InvitePublic(BaseModel):
@@ -99,6 +108,26 @@ EVENT_TYPES = (
     "other",
 )
 EVENT_STATUSES = ("draft", "active", "closed", "archived")
+THEME_PRESETS = ("elegant", "classic", "joyful", "minimal", "formal")
+BACKGROUND_PRESETS = ("", "soft", "plain", "festive")
+
+# #RGB or #RRGGBB hex colours (empty allowed = use the theme default).
+_HEX_COLOR = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+
+
+def _coerce_theme(v: str | None) -> str:
+    return v if v in THEME_PRESETS else "elegant"
+
+
+def _coerce_background(v: str | None) -> str:
+    return v if v in BACKGROUND_PRESETS else ""
+
+
+def _coerce_accent(v: str | None) -> str:
+    """Keep only a valid hex colour; silently drop anything else."""
+    if v and _HEX_COLOR.match(v.strip()):
+        return v.strip()
+    return ""
 
 
 class EventBase(BaseModel):
@@ -106,6 +135,8 @@ class EventBase(BaseModel):
     event_type: str = Field("other")
     host_or_celebrant_name: str = Field("", max_length=200)
     title: str = Field("", max_length=200)
+    invite_headline: str = Field("", max_length=200)
+    invite_message: str = Field("")
     description: str = Field("")
     event_date: datetime | None = None
     event_time: str = Field("", max_length=100)
@@ -117,12 +148,31 @@ class EventBase(BaseModel):
     contact_phone: str = Field("", max_length=50)
     flyer_url: str = Field("", max_length=600)
     rsvp_deadline: datetime | None = None
+    auto_close_rsvp: bool = True
+    theme_preset: str = Field("elegant")
+    accent_color: str = Field("", max_length=20)
+    background_preset: str = Field("")
     status: str = Field("active")
 
     @field_validator("event_type")
     @classmethod
     def _valid_type(cls, v: str) -> str:
         return v if v in EVENT_TYPES else "other"
+
+    @field_validator("theme_preset")
+    @classmethod
+    def _valid_theme(cls, v: str) -> str:
+        return _coerce_theme(v)
+
+    @field_validator("background_preset")
+    @classmethod
+    def _valid_background(cls, v: str) -> str:
+        return _coerce_background(v)
+
+    @field_validator("accent_color")
+    @classmethod
+    def _valid_accent(cls, v: str) -> str:
+        return _coerce_accent(v)
 
     @field_validator("status")
     @classmethod
@@ -142,6 +192,8 @@ class EventUpdate(BaseModel):
     event_type: str | None = None
     host_or_celebrant_name: str | None = None
     title: str | None = None
+    invite_headline: str | None = None
+    invite_message: str | None = None
     description: str | None = None
     event_date: datetime | None = None
     event_time: str | None = None
@@ -153,7 +205,26 @@ class EventUpdate(BaseModel):
     contact_phone: str | None = None
     flyer_url: str | None = None
     rsvp_deadline: datetime | None = None
+    auto_close_rsvp: bool | None = None
+    theme_preset: str | None = None
+    accent_color: str | None = None
+    background_preset: str | None = None
     status: str | None = None
+
+    @field_validator("theme_preset")
+    @classmethod
+    def _valid_theme(cls, v):
+        return _coerce_theme(v) if v is not None else None
+
+    @field_validator("background_preset")
+    @classmethod
+    def _valid_background(cls, v):
+        return _coerce_background(v) if v is not None else None
+
+    @field_validator("accent_color")
+    @classmethod
+    def _valid_accent(cls, v):
+        return _coerce_accent(v) if v is not None else None
 
     @field_validator("status")
     @classmethod
@@ -170,6 +241,8 @@ class EventAdminOut(BaseModel):
     event_type: str
     host_or_celebrant_name: str
     title: str
+    invite_headline: str
+    invite_message: str
     description: str
     event_date: datetime | None
     event_time: str
@@ -180,7 +253,14 @@ class EventAdminOut(BaseModel):
     gift_details: str
     contact_phone: str
     flyer_url: str
+    flyer_storage_path: str
+    # Resolved display image (uploaded flyer or external URL). Set by the router.
+    flyer_image_url: str = ""
     rsvp_deadline: datetime | None
+    auto_close_rsvp: bool
+    theme_preset: str
+    accent_color: str
+    background_preset: str
     status: str
     tree_count: int = 0
     rsvp_count: int = 0

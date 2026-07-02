@@ -29,6 +29,23 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
+    # --- Flyer / image storage ------------------------------------------- #
+    # "local"  -> files saved under `upload_dir`, served from `/media/...`.
+    # "supabase" -> files pushed to a Supabase Storage bucket (see below).
+    storage_backend: str = "local"
+    # Local disk directory for uploads (relative to the backend working dir).
+    upload_dir: str = "uploads"
+    # Public URL prefix used to build absolute media links. Leave blank for
+    # local storage (the app returns "/media/..." paths the frontend resolves
+    # against the API origin). For Supabase this is set automatically.
+    media_base_url: str = ""
+    # Max upload size (bytes) and the image types we accept.
+    max_upload_bytes: int = 5 * 1024 * 1024  # 5 MB
+    # Supabase Storage (only used when storage_backend == "supabase").
+    supabase_url: str = ""
+    supabase_service_key: str = ""
+    supabase_bucket: str = "flyers"
+
     # Simple in-memory rate limit for public RSVP submissions (per client IP).
     rsvp_rate_limit_max: int = 8
     rsvp_rate_limit_window_seconds: int = 60

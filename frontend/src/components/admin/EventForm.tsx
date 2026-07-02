@@ -1,10 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { useState } from "react";
-import { Loader2 } from "lucide-react";
-import { api, ApiError } from "@/lib/api";
-import type { EventAdmin, EventType, EventStatus } from "@/lib/types";
+import { useRef, useState } from "react";
+import { ImagePlus, Loader2, Trash2, UploadCloud } from "lucide-react";
+import { api, ApiError, resolveMediaUrl } from "@/lib/api";
+import type {
+  BackgroundPreset,
+  EventAdmin,
+  EventType,
+  EventStatus,
+  ThemePreset,
+} from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +31,21 @@ const EVENT_TYPES: EventType[] = [
 
 const STATUSES: EventStatus[] = ["draft", "active", "closed", "archived"];
 
+const THEME_PRESETS: { value: ThemePreset; label: string }[] = [
+  { value: "elegant", label: "Elegant (royal & gold)" },
+  { value: "classic", label: "Classic (timeless navy)" },
+  { value: "joyful", label: "Joyful (warm & bright)" },
+  { value: "minimal", label: "Minimal (clean & simple)" },
+  { value: "formal", label: "Formal (deep & refined)" },
+];
+
+const BACKGROUND_PRESETS: { value: BackgroundPreset; label: string }[] = [
+  { value: "", label: "Theme default" },
+  { value: "soft", label: "Soft glow" },
+  { value: "plain", label: "Plain" },
+  { value: "festive", label: "Festive" },
+];
+
 // ISO (UTC) -> value for <input type="datetime-local"> in local time.
 function toLocalInput(iso: string | null): string {
   if (!iso) return "";
@@ -43,6 +64,8 @@ type FormState = {
   event_type: EventType;
   host_or_celebrant_name: string;
   title: string;
+  invite_headline: string;
+  invite_message: string;
   description: string;
   event_date: string;
   event_time: string;
@@ -54,6 +77,10 @@ type FormState = {
   contact_phone: string;
   flyer_url: string;
   rsvp_deadline: string;
+  auto_close_rsvp: boolean;
+  theme_preset: ThemePreset;
+  accent_color: string;
+  background_preset: BackgroundPreset;
   status: EventStatus;
 };
 
@@ -63,6 +90,8 @@ function initial(event?: EventAdmin | null): FormState {
     event_type: event?.event_type ?? "birthday",
     host_or_celebrant_name: event?.host_or_celebrant_name ?? "",
     title: event?.title ?? "",
+    invite_headline: event?.invite_headline ?? "",
+    invite_message: event?.invite_message ?? "",
     description: event?.description ?? "",
     event_date: toLocalInput(event?.event_date ?? null),
     event_time: event?.event_time ?? "",
@@ -74,6 +103,10 @@ function initial(event?: EventAdmin | null): FormState {
     contact_phone: event?.contact_phone ?? "",
     flyer_url: event?.flyer_url ?? "",
     rsvp_deadline: toLocalInput(event?.rsvp_deadline ?? null),
+    auto_close_rsvp: event?.auto_close_rsvp ?? true,
+    theme_preset: event?.theme_preset ?? "elegant",
+    accent_color: event?.accent_color ?? "",
+    background_preset: event?.background_preset ?? "",
     status: event?.status ?? "active",
   };
 }
@@ -155,12 +188,29 @@ export function EventForm({
         </Field>
       </div>
 
+      <Field label="Invite headline (short banner line)">
+        <Input
+          value={form.invite_headline}
+          onChange={(e) => set("invite_headline", e.target.value)}
+          placeholder="e.g. You are warmly invited"
+        />
+      </Field>
+
       <Field label="Invitation copy (shown to guests)">
         <Textarea
           value={form.description}
           onChange={(e) => set("description", e.target.value)}
           rows={3}
           placeholder="Write the warm invitation message guests will read..."
+        />
+      </Field>
+
+      <Field label="Warm invitation message (optional — shown prominently)">
+        <Textarea
+          value={form.invite_message}
+          onChange={(e) => set("invite_message", e.target.value)}
+          rows={2}
+          placeholder="A short, heartfelt line. Falls back to the copy above if left blank."
         />
       </Field>
 
@@ -226,20 +276,97 @@ export function EventForm({
         </Field>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Field label="Flyer image URL">
+      {/* Flyer / event image */}
+      <div className="space-y-3 rounded-xl border bg-muted/30 p-4">
+        <Label className="text-sm font-semibold text-royal">Event flyer / image</Label>
+        {event ? (
+          <FlyerUpload event={event} />
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Save the event first, then reopen it to upload a flyer image.
+          </p>
+        )}
+        <Field label="Or paste an external image URL (used if no file is uploaded)">
           <Input
             value={form.flyer_url}
             onChange={(e) => set("flyer_url", e.target.value)}
             placeholder="https://..."
           />
         </Field>
+      </div>
+
+      {/* Invite theme */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <Field label="Theme preset">
+          <Select
+            value={form.theme_preset}
+            onChange={(e) => set("theme_preset", e.target.value as ThemePreset)}
+          >
+            {THEME_PRESETS.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Background style">
+          <Select
+            value={form.background_preset}
+            onChange={(e) =>
+              set("background_preset", e.target.value as BackgroundPreset)
+            }
+          >
+            {BACKGROUND_PRESETS.map((b) => (
+              <option key={b.value || "default"} value={b.value}>
+                {b.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Accent colour (optional)">
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              aria-label="Accent colour"
+              value={form.accent_color || "#1E2A6B"}
+              onChange={(e) => set("accent_color", e.target.value)}
+              className="h-11 w-14 cursor-pointer rounded-lg border border-input bg-white p-1"
+            />
+            {form.accent_color ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => set("accent_color", "")}
+              >
+                Reset
+              </Button>
+            ) : (
+              <span className="text-xs text-muted-foreground">Theme default</span>
+            )}
+          </div>
+        </Field>
+      </div>
+
+      {/* Deadline + status */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Field label="RSVP deadline">
           <Input
             type="datetime-local"
             value={form.rsvp_deadline}
             onChange={(e) => set("rsvp_deadline", e.target.value)}
           />
+        </Field>
+        <Field label="After the deadline">
+          <label className="flex h-11 items-center gap-2 rounded-lg border border-input bg-white px-3 text-sm">
+            <input
+              type="checkbox"
+              checked={form.auto_close_rsvp}
+              onChange={(e) => set("auto_close_rsvp", e.target.checked)}
+              className="h-4 w-4 cursor-pointer accent-royal"
+            />
+            Close RSVPs automatically
+          </label>
         </Field>
         <Field label="Status">
           <Select
@@ -287,6 +414,115 @@ function Field({
         {label} {required && <span className="text-red-500">*</span>}
       </Label>
       {children}
+    </div>
+  );
+}
+
+// Upload / preview / replace / remove the event flyer image.
+function FlyerUpload({ event }: { event: EventAdmin }) {
+  const [imageUrl, setImageUrl] = useState(event.flyer_image_url);
+  const [storagePath, setStoragePath] = useState(event.flyer_storage_path);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const preview = resolveMediaUrl(imageUrl);
+  const hasUpload = Boolean(storagePath);
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const updated = await api.upload<EventAdmin>(
+        `/api/admin/events/${event.id}/flyer`,
+        fd
+      );
+      setImageUrl(updated.flyer_image_url);
+      setStoragePath(updated.flyer_storage_path);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Upload failed.");
+    } finally {
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  async function onRemove() {
+    setError(null);
+    setBusy(true);
+    try {
+      const updated = await api.del<EventAdmin>(
+        `/api/admin/events/${event.id}/flyer`
+      );
+      setImageUrl(updated.flyer_image_url);
+      setStoragePath(updated.flyer_storage_path);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not remove flyer.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      {preview ? (
+        <div className="relative overflow-hidden rounded-lg border bg-white">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={preview}
+            alt="Event flyer preview"
+            className="max-h-64 w-full object-contain"
+          />
+        </div>
+      ) : (
+        <div className="flex h-32 items-center justify-center rounded-lg border border-dashed bg-white text-muted-foreground">
+          <ImagePlus className="mr-2 h-5 w-5" /> No flyer uploaded yet
+        </div>
+      )}
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        onChange={onFile}
+        className="hidden"
+      />
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          onClick={() => inputRef.current?.click()}
+        >
+          {busy ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <UploadCloud className="h-4 w-4" />
+          )}
+          {hasUpload ? "Replace flyer" : "Upload flyer"}
+        </Button>
+        {hasUpload && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            onClick={onRemove}
+          >
+            <Trash2 className="h-4 w-4" /> Remove
+          </Button>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        JPG, PNG or WebP · up to 5&nbsp;MB. Uploaded images take priority over the
+        URL below.
+      </p>
+      {error && <p className="text-sm text-red-600">{error}</p>}
     </div>
   );
 }

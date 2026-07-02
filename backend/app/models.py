@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     ForeignKey,
     Integer,
@@ -40,6 +41,10 @@ class Event(Base):
     event_type: Mapped[str] = mapped_column(String(50), default="other")
     host_or_celebrant_name: Mapped[str] = mapped_column(String(200), default="")
     title: Mapped[str] = mapped_column(String(200), default="")
+    # Optional short banner line + longer message shown on the public invite.
+    # When blank the invite falls back to title / description respectively.
+    invite_headline: Mapped[str] = mapped_column(String(200), default="")
+    invite_message: Mapped[str] = mapped_column(Text, default="")
     description: Mapped[str] = mapped_column(Text, default="")
     event_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Optional human-friendly time override, e.g. "5:00 PM (prompt)".
@@ -50,8 +55,19 @@ class Event(Base):
     dress_code: Mapped[str] = mapped_column(Text, default="")
     gift_details: Mapped[str] = mapped_column(Text, default="")
     contact_phone: Mapped[str] = mapped_column(String(50), default="")
+    # External flyer URL (optional). `flyer_storage_path` is set when an image
+    # is uploaded through the app; it takes precedence over `flyer_url`.
     flyer_url: Mapped[str] = mapped_column(String(600), default="")
+    flyer_storage_path: Mapped[str] = mapped_column(String(600), default="")
     rsvp_deadline: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # When True, the public RSVP form closes automatically once the deadline
+    # passes. When False, the deadline is shown but RSVPs stay open.
+    auto_close_rsvp: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Invite presentation. theme_preset drives the public page palette; the
+    # optional accent_color / background_preset fine-tune it.
+    theme_preset: Mapped[str] = mapped_column(String(30), default="elegant")
+    accent_color: Mapped[str] = mapped_column(String(20), default="")
+    background_preset: Mapped[str] = mapped_column(String(30), default="")
     # draft | active | closed | archived
     status: Mapped[str] = mapped_column(String(20), default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
