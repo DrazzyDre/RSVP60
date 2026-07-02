@@ -7,6 +7,7 @@ import { CalendarRange, Mail, Shield, User } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Admin } from "@/lib/types";
 import { useEvents } from "@/components/admin/event-context";
+import { EventReadiness } from "@/components/admin/EventReadiness";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { eventTypeLabel } from "@/lib/utils";
@@ -70,6 +71,20 @@ export default function SettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      {selectedEvent && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Event readiness</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              What to complete before sharing invites for {selectedEvent.name}.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <EventReadiness eventId={selectedEvent.id} />
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

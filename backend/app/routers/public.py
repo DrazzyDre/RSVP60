@@ -40,13 +40,21 @@ def _get_tree_by_token(db: Session, token: str) -> InviteTree:
 
 
 def _is_accepting(tree: InviteTree, event) -> bool:
-    """RSVPs are open only when the tree is active, the event is active, and the
-    RSVP deadline (if any) has not passed."""
+    """RSVPs are open only when the tree is active, the event is active, and —
+    when auto-close is enabled — the RSVP deadline (if any) has not passed.
+
+    When ``auto_close_rsvp`` is False the deadline is informational only and the
+    RSVP form stays open past it.
+    """
     if tree.status == "paused":
         return False
     if event.status != "active":
         return False
-    if event.rsvp_deadline and datetime.utcnow() > event.rsvp_deadline:
+    if (
+        event.auto_close_rsvp
+        and event.rsvp_deadline
+        and datetime.utcnow() > event.rsvp_deadline
+    ):
         return False
     return True
 

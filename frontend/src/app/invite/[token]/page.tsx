@@ -237,6 +237,11 @@ export default function InvitePage() {
             <p className="mt-1 text-sm text-muted-foreground">
               {invitationVerb(event.event_type)}.
             </p>
+            {event.rsvp_deadline && invite.accepting_rsvps && (
+              <p className="mt-2 text-xs font-medium text-muted-foreground">
+                Please RSVP by {formatDate(event.rsvp_deadline)}
+              </p>
+            )}
           </div>
 
           {invite.accepting_rsvps ? (

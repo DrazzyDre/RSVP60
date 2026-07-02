@@ -167,6 +167,19 @@ export interface DashboardSummary {
   total_trees: number;
 }
 
+export interface ReadinessItem {
+  key: string;
+  label: string;
+  done: boolean;
+  hint: string;
+}
+
+export interface EventReadiness {
+  items: ReadinessItem[];
+  completed: number;
+  total: number;
+}
+
 export interface DashboardCharts {
   seat_usage_by_tree: { tree: string; allocated: number; used: number; remaining: number }[];
   rsvp_status_breakdown: { status: string; count: number }[];

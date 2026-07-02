@@ -234,6 +234,19 @@ class EventUpdate(BaseModel):
         return v
 
 
+class ReadinessItem(BaseModel):
+    key: str
+    label: str
+    done: bool
+    hint: str = ""
+
+
+class EventReadiness(BaseModel):
+    items: list[ReadinessItem]
+    completed: int
+    total: int
+
+
 class EventAdminOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
