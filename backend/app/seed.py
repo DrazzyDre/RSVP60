@@ -20,12 +20,13 @@ from .models import Admin, Event, InviteTree, Rsvp
 from .security import hash_password
 
 # Admin accounts (documented in the README). Change these for production.
+# One account per role so every permission level can be exercised in dev.
 # Note: emails use a real TLD (.com) because the email validator rejects
 # reserved special-use domains such as `.test` / `example.com`.
 ADMINS = [
-    ("admin@rsvp60.com", "Grace Adeyemi", "admin", "admin123"),
-    ("host@rsvp60.com", "Tunde Bakare", "admin", "host1234"),
-    ("planner@rsvp60.com", "Chidinma Okafor", "admin", "planner123"),
+    ("owner@rsvp60.com", "Grace Adeyemi", "owner", "owner123"),
+    ("admin@rsvp60.com", "Tunde Bakare", "admin", "admin123"),
+    ("viewer@rsvp60.com", "Chidinma Okafor", "viewer", "viewer123"),
 ]
 
 
@@ -260,9 +261,9 @@ def seed() -> None:
         print("    Invite trees: Family, Church Friends, Work Friends, VIP Guests")
         print("  Event #2 (wedding):", wedding.name)
         print("    Invite trees: Bride's Family, Couple's Friends")
-        print("  Admin logins:")
-        for email, _, _, password in ADMINS:
-            print(f"    {email} / {password}")
+        print("  Admin logins (email / password / role):")
+        for email, _, role, password in ADMINS:
+            print(f"    {email} / {password}  [{role}]")
         print("\n  Demo invite links (SITE_URL/invite/<token>):")
         for t in (family, church, work, vip, w_family, w_friends):
             print(f"    {t.name:<18} /invite/{t.token}")
