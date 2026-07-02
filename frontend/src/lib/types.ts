@@ -186,6 +186,23 @@ export interface EventReadiness {
   total: number;
 }
 
+export interface AuditLogEntry {
+  id: string;
+  created_at: string;
+  admin_id: string | null;
+  admin_email: string | null;
+  admin_name: string | null;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  meta: Record<string, unknown>;
+}
+
+export interface AuditLogPage {
+  items: AuditLogEntry[];
+  total: number;
+}
+
 export interface DashboardCharts {
   seat_usage_by_tree: { tree: string; allocated: number; used: number; remaining: number }[];
   rsvp_status_breakdown: { status: string; count: number }[];

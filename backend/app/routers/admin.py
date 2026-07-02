@@ -6,6 +6,7 @@ Everything below (trees, RSVPs, dashboard) is scoped to a single event via an
 
 import csv
 import io
+import json
 from collections import defaultdict
 from datetime import datetime
 
@@ -26,7 +27,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..database import get_db
 from ..deps import get_current_admin, log_action, require_editor, require_owner
-from ..models import Admin, Event, InviteTree, Rsvp, new_uuid
+from ..models import Admin, AuditLog, Event, InviteTree, Rsvp, new_uuid
 from ..ratelimit import (
     check_login_not_blocked,
     record_login_failure,
@@ -45,6 +46,8 @@ from ..schemas import (
     AdminPasswordSet,
     AdminSelfPasswordUpdate,
     AdminUpdate,
+    AuditLogOut,
+    AuditLogPage,
     DashboardCharts,
     DashboardSummary,
     EventAdminOut,
@@ -273,6 +276,93 @@ def reactivate_admin(
         db.commit()
         db.refresh(target)
     return AdminOut.model_validate(target)
+
+
+# --------------------------------------------------------------------------- #
+# Audit log (owner only)
+# --------------------------------------------------------------------------- #
+# Metadata keys whose values are redacted before returning, as defence in depth —
+# the app never logs secrets, but this guarantees it even if that ever slips.
+_SENSITIVE_META_KEYS = ("password", "secret", "token", "hash", "apikey", "key")
+
+
+def _safe_meta(raw: str) -> dict:
+    try:
+        data = json.loads(raw or "{}")
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(data, dict):
+        return {"value": str(data)}
+    safe: dict = {}
+    for key, value in data.items():
+        if any(s in str(key).lower() for s in _SENSITIVE_META_KEYS):
+            safe[key] = "***"
+        else:
+            safe[key] = value
+    return safe
+
+
+@router.get("/audit-logs", response_model=AuditLogPage)
+def list_audit_logs(
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(require_owner),
+    action: str | None = None,
+    admin_id: str | None = None,
+    entity_type: str | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    conditions = []
+    if action:
+        conditions.append(AuditLog.action == action)
+    if admin_id:
+        conditions.append(AuditLog.admin_id == admin_id)
+    if entity_type:
+        conditions.append(AuditLog.entity_type == entity_type)
+    if since:
+        conditions.append(AuditLog.created_at >= since)
+    if until:
+        conditions.append(AuditLog.created_at <= until)
+
+    total = int(
+        db.execute(select(func.count(AuditLog.id)).where(*conditions)).scalar_one()
+    )
+    rows = (
+        db.execute(
+            select(AuditLog)
+            .where(*conditions)
+            .order_by(AuditLog.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        .scalars()
+        .all()
+    )
+
+    # Resolve admin display info in one query.
+    ids = {r.admin_id for r in rows if r.admin_id}
+    admins: dict[str, Admin] = {}
+    if ids:
+        for a in db.execute(select(Admin).where(Admin.id.in_(ids))).scalars().all():
+            admins[a.id] = a
+
+    items = [
+        AuditLogOut(
+            id=r.id,
+            created_at=r.created_at,
+            admin_id=r.admin_id,
+            admin_email=admins[r.admin_id].email if r.admin_id in admins else None,
+            admin_name=admins[r.admin_id].full_name if r.admin_id in admins else None,
+            action=r.action,
+            entity_type=r.entity_type,
+            entity_id=r.entity_id,
+            meta=_safe_meta(r.meta),
+        )
+        for r in rows
+    ]
+    return AuditLogPage(items=items, total=total)
 
 
 # --------------------------------------------------------------------------- #

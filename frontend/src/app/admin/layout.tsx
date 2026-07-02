@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   ListTree,
   LogOut,
+  ScrollText,
   Settings,
   ShieldCheck,
   Users,
@@ -35,6 +36,7 @@ const NAV: NavItem[] = [
   { href: "/admin/invite-trees", label: "Invite Trees", icon: ListTree },
   { href: "/admin/rsvps", label: "RSVPs", icon: Users },
   { href: "/admin/admins", label: "Admins", icon: ShieldCheck, ownerOnly: true },
+  { href: "/admin/audit", label: "Audit", icon: ScrollText, ownerOnly: true },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ];
 

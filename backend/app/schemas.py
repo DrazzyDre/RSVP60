@@ -91,6 +91,26 @@ class AdminSelfPasswordUpdate(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+# Audit log (owner only)
+# --------------------------------------------------------------------------- #
+class AuditLogOut(BaseModel):
+    id: str
+    created_at: datetime
+    admin_id: str | None = None
+    admin_email: str | None = None
+    admin_name: str | None = None
+    action: str
+    entity_type: str
+    entity_id: str
+    meta: dict = {}
+
+
+class AuditLogPage(BaseModel):
+    items: list[AuditLogOut]
+    total: int
+
+
+# --------------------------------------------------------------------------- #
 # Public invite
 # --------------------------------------------------------------------------- #
 class EventPublic(BaseModel):
