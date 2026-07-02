@@ -9,7 +9,16 @@ import io
 from collections import defaultdict
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -18,6 +27,11 @@ from ..config import settings
 from ..database import get_db
 from ..deps import get_current_admin, log_action, require_editor, require_owner
 from ..models import Admin, Event, InviteTree, Rsvp, new_uuid
+from ..ratelimit import (
+    check_login_not_blocked,
+    record_login_failure,
+    reset_login_failures,
+)
 from ..roles import OWNER
 from ..storage import (
     ALLOWED_IMAGE_TYPES,
@@ -59,20 +73,27 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 # Auth
 # --------------------------------------------------------------------------- #
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
+def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    # Throttle brute-force: block this IP+email after too many recent failures.
+    check_login_not_blocked(request, payload.email)
+
     admin = db.execute(
         select(Admin).where(Admin.email == payload.email.lower())
     ).scalar_one_or_none()
     if admin is None or not verify_password(payload.password, admin.hashed_password):
+        record_login_failure(request, payload.email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password.",
         )
     if not admin.is_active:
+        record_login_failure(request, payload.email)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This account has been deactivated. Please contact an owner.",
         )
+    # Successful sign-in clears the failure counter for this IP+email.
+    reset_login_failures(request, payload.email)
     admin.last_login_at = datetime.utcnow()
     db.commit()
     db.refresh(admin)

@@ -51,3 +51,73 @@ def rate_limit_rsvp(request: Request) -> None:
     """FastAPI dependency: throttle public RSVP submissions per client IP."""
     client_ip = request.client.host if request.client else "unknown"
     _rsvp_limiter.check(client_ip)
+
+
+class FailedAttemptLimiter:
+    """Blocks a key after too many *failed* attempts within a window.
+
+    Unlike the sliding-window limiter, only explicit failures are recorded and a
+    success clears the counter — so it throttles brute-force admin logins without
+    ever counting successful sign-ins or normal authenticated API calls.
+    """
+
+    def __init__(self, max_failures: int, window_seconds: int):
+        self.max_failures = max_failures
+        self.window_seconds = window_seconds
+        self._failures: dict[str, deque[float]] = defaultdict(deque)
+        self._lock = threading.Lock()
+
+    def _prune(self, key: str, now: float) -> deque[float]:
+        cutoff = now - self.window_seconds
+        hits = self._failures[key]
+        while hits and hits[0] < cutoff:
+            hits.popleft()
+        return hits
+
+    def check_blocked(self, key: str) -> None:
+        now = time.monotonic()
+        with self._lock:
+            hits = self._prune(key, now)
+            if len(hits) >= self.max_failures:
+                retry = max(1, int(self.window_seconds - (now - hits[0])))
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=(
+                        "Too many failed sign-in attempts. Please wait about "
+                        f"{retry} seconds and try again."
+                    ),
+                    headers={"Retry-After": str(retry)},
+                )
+
+    def record_failure(self, key: str) -> None:
+        now = time.monotonic()
+        with self._lock:
+            self._prune(key, now).append(now)
+
+    def reset(self, key: str) -> None:
+        with self._lock:
+            self._failures.pop(key, None)
+
+
+_login_limiter = FailedAttemptLimiter(
+    settings.login_rate_limit_max_failures,
+    settings.login_rate_limit_window_seconds,
+)
+
+
+def _login_key(request: Request, email: str) -> str:
+    ip = request.client.host if request.client else "unknown"
+    return f"{ip}|{(email or '').strip().lower()}"
+
+
+def check_login_not_blocked(request: Request, email: str) -> None:
+    """Raise 429 if this IP+email has too many recent failed logins."""
+    _login_limiter.check_blocked(_login_key(request, email))
+
+
+def record_login_failure(request: Request, email: str) -> None:
+    _login_limiter.record_failure(_login_key(request, email))
+
+
+def reset_login_failures(request: Request, email: str) -> None:
+    _login_limiter.reset(_login_key(request, email))

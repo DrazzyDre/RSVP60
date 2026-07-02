@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     rsvp_rate_limit_max: int = 8
     rsvp_rate_limit_window_seconds: int = 60
 
+    # Failed admin-login throttle (per client IP + email). Blocks brute force
+    # without affecting normal authenticated API usage. In-process only — use a
+    # shared store (Redis) for multi-instance production (see README).
+    login_rate_limit_max_failures: int = 5
+    login_rate_limit_window_seconds: int = 300
+
     @property
     def is_production(self) -> bool:
         return self.app_env.lower() == "production"
