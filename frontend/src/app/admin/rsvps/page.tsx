@@ -5,6 +5,7 @@ import { Download, Loader2, Search } from "lucide-react";
 import { API_URL, api, ApiError, getToken } from "@/lib/api";
 import type { InviteTree, RsvpAdmin, RsvpStatus } from "@/lib/types";
 import { useEvents } from "@/components/admin/event-context";
+import { useCanEdit } from "@/components/admin/auth-context";
 import { EmptyEventState } from "@/components/admin/EmptyEventState";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +19,7 @@ const STATUSES: RsvpStatus[] = ["accepted", "declined", "waitlisted", "cancelled
 
 export default function RsvpsPage() {
   const { selectedEventId, selectedEvent, loading: eventsLoading } = useEvents();
+  const canEdit = useCanEdit();
   const [rsvps, setRsvps] = useState<RsvpAdmin[]>([]);
   const [trees, setTrees] = useState<InviteTree[]>([]);
   const [loading, setLoading] = useState(true);
@@ -170,7 +172,7 @@ export default function RsvpsPage() {
                     <th className="px-4 py-3 font-medium">Seats</th>
                     <th className="px-4 py-3 font-medium">Submitted</th>
                     <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 font-medium">Change</th>
+                    {canEdit && <th className="px-4 py-3 font-medium">Change</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -193,21 +195,23 @@ export default function RsvpsPage() {
                       <td className="px-4 py-3">
                         <Badge status={r.rsvp_status} />
                       </td>
-                      <td className="px-4 py-3">
-                        <Select
-                          value={r.rsvp_status}
-                          onChange={(e) =>
-                            updateStatus(r.id, e.target.value as RsvpStatus)
-                          }
-                          className="h-9 w-36 text-sm"
-                        >
-                          {STATUSES.map((s) => (
-                            <option key={s} value={s} className="capitalize">
-                              {s}
-                            </option>
-                          ))}
-                        </Select>
-                      </td>
+                      {canEdit && (
+                        <td className="px-4 py-3">
+                          <Select
+                            value={r.rsvp_status}
+                            onChange={(e) =>
+                              updateStatus(r.id, e.target.value as RsvpStatus)
+                            }
+                            className="h-9 w-36 text-sm"
+                          >
+                            {STATUSES.map((s) => (
+                              <option key={s} value={s} className="capitalize">
+                                {s}
+                              </option>
+                            ))}
+                          </Select>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -232,17 +236,21 @@ export default function RsvpsPage() {
                     <span>{r.seats_requested} seats</span>
                     <span>{formatDateTimeShort(r.created_at)}</span>
                   </div>
-                  <Select
-                    value={r.rsvp_status}
-                    onChange={(e) => updateStatus(r.id, e.target.value as RsvpStatus)}
-                    className="h-9 text-sm"
-                  >
-                    {STATUSES.map((s) => (
-                      <option key={s} value={s} className="capitalize">
-                        {s}
-                      </option>
-                    ))}
-                  </Select>
+                  {canEdit && (
+                    <Select
+                      value={r.rsvp_status}
+                      onChange={(e) =>
+                        updateStatus(r.id, e.target.value as RsvpStatus)
+                      }
+                      className="h-9 text-sm"
+                    >
+                      {STATUSES.map((s) => (
+                        <option key={s} value={s} className="capitalize">
+                          {s}
+                        </option>
+                      ))}
+                    </Select>
+                  )}
                 </CardContent>
               </Card>
             ))}

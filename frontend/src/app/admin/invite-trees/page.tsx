@@ -14,6 +14,7 @@ import {
 import { api, ApiError } from "@/lib/api";
 import type { EventAdmin, InviteTree } from "@/lib/types";
 import { useEvents } from "@/components/admin/event-context";
+import { useCanEdit } from "@/components/admin/auth-context";
 import { EmptyEventState } from "@/components/admin/EmptyEventState";
 import { InviteTreeShare } from "@/components/admin/InviteTreeShare";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,7 @@ const PLUS_ONE_LABELS: Record<number, string> = {
 
 export default function InviteTreesPage() {
   const { selectedEventId, selectedEvent, loading: eventsLoading } = useEvents();
+  const canEdit = useCanEdit();
   const [trees, setTrees] = useState<InviteTree[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,12 +66,14 @@ export default function InviteTreesPage() {
               : "Seat allocations and secure invite links."}
           </p>
         </div>
-        <Button onClick={() => setShowCreate((s) => !s)}>
-          <Plus className="h-4 w-4" /> New tree
-        </Button>
+        {canEdit && (
+          <Button onClick={() => setShowCreate((s) => !s)}>
+            <Plus className="h-4 w-4" /> New tree
+          </Button>
+        )}
       </div>
 
-      {showCreate && selectedEventId && (
+      {canEdit && showCreate && selectedEventId && (
         <CreateTreeCard
           eventId={selectedEventId}
           onCreated={() => {
@@ -217,6 +221,7 @@ function TreeCard({
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const canEdit = useCanEdit();
   const pct =
     tree.allocated_seats > 0
       ? Math.min(Math.round((tree.used_seats / tree.allocated_seats) * 100), 100)
@@ -290,7 +295,7 @@ function TreeCard({
           treeName={tree.name}
         />
 
-        {editing ? (
+        {canEdit && (editing ? (
           <div className="space-y-3 rounded-lg border bg-muted/40 p-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div className="space-y-1">
@@ -362,7 +367,7 @@ function TreeCard({
               </Button>
             )}
           </div>
-        )}
+        ))}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
       </CardContent>

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CalendarPlus, ExternalLink, Pencil, Users, ListTree } from "lucide-react";
 import type { EventAdmin } from "@/lib/types";
 import { useEvents } from "@/components/admin/event-context";
+import { useCanEdit } from "@/components/admin/auth-context";
 import { EventForm } from "@/components/admin/EventForm";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +24,7 @@ const STATUS_BADGE: Record<string, string> = {
 
 export default function EventsPage() {
   const { events, loading, refreshEvents, setSelectedEventId } = useEvents();
+  const canEdit = useCanEdit();
   const [mode, setMode] = useState<Mode>({ kind: "list" });
 
   async function handleSaved(saved: EventAdmin) {
@@ -68,9 +70,11 @@ export default function EventsPage() {
             Create and manage every event on RSVP60.
           </p>
         </div>
-        <Button onClick={() => setMode({ kind: "new" })}>
-          <CalendarPlus className="h-4 w-4" /> New event
-        </Button>
+        {canEdit && (
+          <Button onClick={() => setMode({ kind: "new" })}>
+            <CalendarPlus className="h-4 w-4" /> New event
+          </Button>
+        )}
       </div>
 
       {loading ? (
@@ -110,13 +114,15 @@ export default function EventsPage() {
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setMode({ kind: "edit", event: ev })}
-                  >
-                    <Pencil className="h-4 w-4" /> Edit
-                  </Button>
+                  {canEdit && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setMode({ kind: "edit", event: ev })}
+                    >
+                      <Pencil className="h-4 w-4" /> Edit
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="secondary"

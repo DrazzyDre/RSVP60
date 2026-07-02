@@ -101,11 +101,17 @@ export interface RsvpCreateResponse {
   message: string;
 }
 
+export type AdminRole = "owner" | "admin" | "viewer";
+
 export interface Admin {
   id: string;
   email: string;
   full_name: string;
-  role: string;
+  role: AdminRole;
+  is_active: boolean;
+  last_login_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface TokenResponse {

@@ -10,6 +10,7 @@ import {
   ListTree,
   LogOut,
   Settings,
+  ShieldCheck,
   Users,
   Loader2,
 } from "lucide-react";
@@ -17,14 +18,23 @@ import { api, ApiError, clearToken, getToken } from "@/lib/api";
 import type { Admin } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { AuthProvider } from "@/components/admin/auth-context";
 import { EventProvider } from "@/components/admin/event-context";
 import { EventSwitcher } from "@/components/admin/EventSwitcher";
 
-const NAV = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: React.ElementType;
+  ownerOnly?: boolean;
+};
+
+const NAV: NavItem[] = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/events", label: "Events", icon: CalendarRange },
   { href: "/admin/invite-trees", label: "Invite Trees", icon: ListTree },
   { href: "/admin/rsvps", label: "RSVPs", icon: Users },
+  { href: "/admin/admins", label: "Admins", icon: ShieldCheck, ownerOnly: true },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ];
 
@@ -76,8 +86,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     router.replace("/admin/login");
   }
 
+  const isOwner = admin?.role === "owner";
+  const nav = NAV.filter((item) => !item.ownerOnly || isOwner);
+
   return (
-    <EventProvider>
+    <AuthProvider admin={admin}>
+      <EventProvider>
       <div className="min-h-screen bg-muted/40 lg:flex">
         {/* Sidebar (desktop) */}
         <aside className="hidden w-64 flex-shrink-0 border-r bg-white lg:flex lg:flex-col">
@@ -89,8 +103,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <EventSwitcher />
           </div>
           <nav className="flex-1 space-y-1 p-3">
-            {NAV.map((item) => (
-              <NavLink key={item.href} {...item} pathname={pathname} />
+            {nav.map((item) => (
+              <NavLink
+                key={item.href}
+                href={item.href}
+                label={item.label}
+                icon={item.icon}
+                pathname={pathname}
+              />
             ))}
           </nav>
           <div className="border-t p-4">
@@ -121,15 +141,23 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
           {/* Mobile nav */}
           <nav className="flex gap-1 overflow-x-auto border-b bg-white px-2 py-2 lg:hidden">
-            {NAV.map((item) => (
-              <NavLink key={item.href} {...item} pathname={pathname} compact />
+            {nav.map((item) => (
+              <NavLink
+                key={item.href}
+                href={item.href}
+                label={item.label}
+                icon={item.icon}
+                pathname={pathname}
+                compact
+              />
             ))}
           </nav>
 
           <main className="flex-1 p-4 sm:p-6 lg:p-8">{children}</main>
         </div>
       </div>
-    </EventProvider>
+      </EventProvider>
+    </AuthProvider>
   );
 }
 

@@ -3,13 +3,15 @@
 import * as React from "react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CalendarRange, Mail, Shield, User } from "lucide-react";
-import { api } from "@/lib/api";
+import { CalendarRange, Check, KeyRound, Loader2, Mail, Shield, User } from "lucide-react";
+import { api, ApiError } from "@/lib/api";
 import type { Admin } from "@/lib/types";
 import { useEvents } from "@/components/admin/event-context";
 import { EventReadiness } from "@/components/admin/EventReadiness";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { eventTypeLabel } from "@/lib/utils";
 
 export default function SettingsPage() {
@@ -43,6 +45,15 @@ export default function SettingsPage() {
           <Row icon={<Shield className="h-4 w-4" />} label="Role">
             <span className="capitalize">{admin?.role || "admin"}</span>
           </Row>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Change your password</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <SelfPasswordForm />
         </CardContent>
       </Card>
 
@@ -102,6 +113,78 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function SelfPasswordForm() {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSaving(true);
+    try {
+      await api.patch("/api/admin/me/password", {
+        current_password: current,
+        new_password: next,
+      });
+      setCurrent("");
+      setNext("");
+      setDone(true);
+      setTimeout(() => setDone(false), 2500);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not update password.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="space-y-2">
+        <Label>Current password</Label>
+        <Input
+          type="password"
+          value={current}
+          onChange={(e) => setCurrent(e.target.value)}
+          autoComplete="current-password"
+          required
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>New password</Label>
+        <Input
+          type="password"
+          value={next}
+          onChange={(e) => setNext(e.target.value)}
+          placeholder="At least 8 characters"
+          minLength={8}
+          autoComplete="new-password"
+          required
+        />
+      </div>
+      {error && (
+        <p className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700 sm:col-span-2">
+          {error}
+        </p>
+      )}
+      <div className="sm:col-span-2">
+        <Button type="submit" disabled={saving}>
+          {saving ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : done ? (
+            <Check className="h-4 w-4 text-green-300" />
+          ) : (
+            <KeyRound className="h-4 w-4" />
+          )}
+          {done ? "Password updated" : "Update password"}
+        </Button>
+      </div>
+    </form>
   );
 }
 
