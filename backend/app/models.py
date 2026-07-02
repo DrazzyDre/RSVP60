@@ -143,6 +143,15 @@ class Rsvp(Base):
     seats_requested: Mapped[int] = mapped_column(Integer, default=1)
     note_to_celebrant: Mapped[str | None] = mapped_column(Text, nullable=True)
     dietary_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Event-day check-in. checked_in_at is the source of truth for "checked in".
+    checked_in_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    checked_in_by_admin_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    checked_in_seats: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Per-RSVP token used to identify a submitted RSVP at check-in (distinct from
+    # the invite tree token). Random and URL-safe — never a database id.
+    check_in_token: Mapped[str] = mapped_column(
+        String(64), unique=True, index=True, default=new_token, nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow

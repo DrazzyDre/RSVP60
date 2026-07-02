@@ -413,6 +413,12 @@ class RsvpAdminOut(BaseModel):
     seats_requested: int
     note_to_celebrant: str | None
     dietary_note: str | None
+    # Event-day check-in.
+    checked_in_at: datetime | None = None
+    checked_in_seats: int | None = None
+    checked_in_by_admin_id: str | None = None
+    checked_in_by: str | None = None  # resolved admin name/email
+    check_in_token: str
     created_at: datetime
     updated_at: datetime
 
@@ -422,6 +428,52 @@ class RsvpUpdate(BaseModel):
         None, pattern="^(accepted|declined|waitlisted|cancelled)$"
     )
     seats_requested: int | None = Field(None, ge=1, le=3)
+
+
+# --------------------------------------------------------------------------- #
+# Admin — event-day check-in
+# --------------------------------------------------------------------------- #
+class CheckInRequest(BaseModel):
+    # Actual seats present. Defaults to the RSVP's seats_requested when omitted.
+    seats: int | None = Field(None, ge=1)
+
+
+class CheckedInSeatsUpdate(BaseModel):
+    checked_in_seats: int = Field(..., ge=1)
+
+
+class ManifestEntry(BaseModel):
+    id: str
+    full_name: str
+    phone: str
+    email: str | None
+    invite_tree_id: str
+    invite_tree_name: str
+    rsvp_status: str
+    seats_requested: int
+    checked_in: bool
+    checked_in_at: datetime | None
+    checked_in_seats: int | None
+    note_to_celebrant: str | None
+    dietary_note: str | None
+
+
+class ManifestTreeTotal(BaseModel):
+    invite_tree_id: str
+    invite_tree_name: str
+    guests: int
+    confirmed_seats: int
+    checked_in_seats: int
+
+
+class GuestManifest(BaseModel):
+    event_id: str
+    event_name: str
+    entries: list[ManifestEntry]
+    total_confirmed_seats: int
+    total_checked_in_seats: int
+    total_pending_seats: int
+    tree_totals: list[ManifestTreeTotal]
 
 
 # --------------------------------------------------------------------------- #
@@ -438,6 +490,11 @@ class DashboardSummary(BaseModel):
     cancelled_rsvps: int
     exhausted_trees: int
     total_trees: int
+    # Event-day check-in metrics.
+    checked_in_rsvps: int = 0
+    checked_in_seats: int = 0
+    confirmed_not_checked_in: int = 0
+    check_in_rate: float = 0.0
 
 
 class SeatUsagePoint(BaseModel):

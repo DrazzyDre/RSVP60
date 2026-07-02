@@ -48,16 +48,21 @@ from ..schemas import (
     AdminUpdate,
     AuditLogOut,
     AuditLogPage,
+    CheckedInSeatsUpdate,
+    CheckInRequest,
     DashboardCharts,
     DashboardSummary,
     EventAdminOut,
     EventCreate,
     EventReadiness,
     EventUpdate,
+    GuestManifest,
     InviteTreeCreate,
     InviteTreeOut,
     InviteTreeUpdate,
     LoginRequest,
+    ManifestEntry,
+    ManifestTreeTotal,
     ReadinessItem,
     RsvpAdminOut,
     RsvpUpdate,
@@ -704,7 +709,21 @@ def update_invite_tree(
 # --------------------------------------------------------------------------- #
 # RSVPs (scoped to an event)
 # --------------------------------------------------------------------------- #
-def _serialize_rsvp(rsvp: Rsvp) -> RsvpAdminOut:
+def _admin_name_map(db: Session, rsvps: list[Rsvp]) -> dict[str, str]:
+    """Map checked_in_by_admin_id -> display name for a batch of RSVPs."""
+    ids = {r.checked_in_by_admin_id for r in rsvps if r.checked_in_by_admin_id}
+    if not ids:
+        return {}
+    rows = db.execute(select(Admin).where(Admin.id.in_(ids))).scalars().all()
+    return {a.id: (a.full_name or a.email) for a in rows}
+
+
+def _serialize_rsvp(
+    rsvp: Rsvp, admin_names: dict[str, str] | None = None
+) -> RsvpAdminOut:
+    checked_in_by = None
+    if rsvp.checked_in_by_admin_id and admin_names:
+        checked_in_by = admin_names.get(rsvp.checked_in_by_admin_id)
     return RsvpAdminOut(
         id=rsvp.id,
         invite_tree_id=rsvp.invite_tree_id,
@@ -717,6 +736,11 @@ def _serialize_rsvp(rsvp: Rsvp) -> RsvpAdminOut:
         seats_requested=rsvp.seats_requested,
         note_to_celebrant=rsvp.note_to_celebrant,
         dietary_note=rsvp.dietary_note,
+        checked_in_at=rsvp.checked_in_at,
+        checked_in_seats=rsvp.checked_in_seats,
+        checked_in_by_admin_id=rsvp.checked_in_by_admin_id,
+        checked_in_by=checked_in_by,
+        check_in_token=rsvp.check_in_token,
         created_at=rsvp.created_at,
         updated_at=rsvp.updated_at,
     )
@@ -754,7 +778,8 @@ def list_rsvps(
     _get_event_or_404(db, event_id)
     stmt = _filtered_rsvp_query(event_id, status_f, invite_tree_id, search)
     rsvps = db.execute(stmt).scalars().all()
-    return [_serialize_rsvp(r) for r in rsvps]
+    names = _admin_name_map(db, rsvps)
+    return [_serialize_rsvp(r, names) for r in rsvps]
 
 
 @router.patch("/rsvps/{rsvp_id}", response_model=RsvpAdminOut)
@@ -797,7 +822,216 @@ def update_rsvp(
     log_action(db, admin, "update", "rsvp", rsvp.id, data)
     db.commit()
     db.refresh(rsvp)
-    return _serialize_rsvp(rsvp)
+    return _serialize_rsvp(rsvp, _admin_name_map(db, [rsvp]))
+
+
+# --------------------------------------------------------------------------- #
+# Event-day check-in (scoped to an event)
+# --------------------------------------------------------------------------- #
+def _get_rsvp_or_404(db: Session, rsvp_id: str) -> Rsvp:
+    rsvp = db.get(Rsvp, rsvp_id)
+    if rsvp is None:
+        raise HTTPException(status_code=404, detail="RSVP not found.")
+    return rsvp
+
+
+@router.get("/check-in/search", response_model=list[RsvpAdminOut])
+def check_in_search(
+    event_id: str = Query(...),
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(get_current_admin),
+    q: str | None = None,
+    token: str | None = None,
+):
+    """Find guests for event-day check-in. Any active admin may view (viewers
+    included); performing a check-in requires an editor role."""
+    _get_event_or_404(db, event_id)
+    stmt = (
+        select(Rsvp)
+        .join(InviteTree, Rsvp.invite_tree_id == InviteTree.id)
+        .where(Rsvp.event_id == event_id)
+    )
+    if token:
+        stmt = stmt.where(Rsvp.check_in_token == token)
+    elif q and q.strip():
+        like = f"%{q.strip()}%"
+        stmt = stmt.where(
+            (Rsvp.full_name.ilike(like))
+            | (Rsvp.phone.ilike(like))
+            | (Rsvp.email.ilike(like))
+        )
+    else:
+        # No query: show the accepted roster (the guests actually expected).
+        stmt = stmt.where(Rsvp.rsvp_status == "accepted")
+    rsvps = db.execute(stmt.order_by(Rsvp.full_name).limit(200)).scalars().all()
+    names = _admin_name_map(db, rsvps)
+    return [_serialize_rsvp(r, names) for r in rsvps]
+
+
+@router.post("/rsvps/{rsvp_id}/check-in", response_model=RsvpAdminOut)
+def check_in_rsvp(
+    rsvp_id: str,
+    payload: CheckInRequest,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(require_editor),
+):
+    rsvp = _get_rsvp_or_404(db, rsvp_id)
+    if rsvp.rsvp_status != "accepted":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Only accepted guests can be checked in. Update the RSVP status "
+                "to accepted first."
+            ),
+        )
+    if rsvp.checked_in_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This guest is already checked in.",
+        )
+    seats = payload.seats if payload.seats is not None else rsvp.seats_requested
+    if seats < 1 or seats > rsvp.seats_requested:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Checked-in seats must be between 1 and the {rsvp.seats_requested} "
+                "seats this guest reserved."
+            ),
+        )
+    rsvp.checked_in_at = datetime.utcnow()
+    rsvp.checked_in_by_admin_id = admin.id
+    rsvp.checked_in_seats = seats
+    log_action(db, admin, "rsvp_checked_in", "rsvp", rsvp.id, {"seats": seats})
+    db.commit()
+    db.refresh(rsvp)
+    return _serialize_rsvp(rsvp, _admin_name_map(db, [rsvp]))
+
+
+@router.post("/rsvps/{rsvp_id}/undo-check-in", response_model=RsvpAdminOut)
+def undo_check_in(
+    rsvp_id: str,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(require_editor),
+):
+    rsvp = _get_rsvp_or_404(db, rsvp_id)
+    if rsvp.checked_in_at is not None:
+        rsvp.checked_in_at = None
+        rsvp.checked_in_by_admin_id = None
+        rsvp.checked_in_seats = None
+        log_action(db, admin, "rsvp_check_in_undone", "rsvp", rsvp.id, {})
+        db.commit()
+        db.refresh(rsvp)
+    return _serialize_rsvp(rsvp, _admin_name_map(db, [rsvp]))
+
+
+@router.patch("/rsvps/{rsvp_id}/checked-in-seats", response_model=RsvpAdminOut)
+def adjust_checked_in_seats(
+    rsvp_id: str,
+    payload: CheckedInSeatsUpdate,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(require_editor),
+):
+    rsvp = _get_rsvp_or_404(db, rsvp_id)
+    if rsvp.checked_in_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This guest is not checked in yet.",
+        )
+    if payload.checked_in_seats > rsvp.seats_requested:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Checked-in seats cannot exceed the {rsvp.seats_requested} seats "
+                "this guest reserved."
+            ),
+        )
+    rsvp.checked_in_seats = payload.checked_in_seats
+    log_action(
+        db, admin, "rsvp_checked_in_seats_adjusted", "rsvp", rsvp.id,
+        {"seats": payload.checked_in_seats},
+    )
+    db.commit()
+    db.refresh(rsvp)
+    return _serialize_rsvp(rsvp, _admin_name_map(db, [rsvp]))
+
+
+# --------------------------------------------------------------------------- #
+# Guest manifest (scoped to an event)
+# --------------------------------------------------------------------------- #
+@router.get("/guest-manifest", response_model=GuestManifest)
+def guest_manifest(
+    event_id: str = Query(...),
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(get_current_admin),
+):
+    event = _get_event_or_404(db, event_id)
+    rsvps = (
+        db.execute(
+            select(Rsvp)
+            .join(InviteTree, Rsvp.invite_tree_id == InviteTree.id)
+            .where(Rsvp.event_id == event_id)
+            .order_by(InviteTree.name, Rsvp.full_name)
+        )
+        .scalars()
+        .all()
+    )
+
+    entries: list[ManifestEntry] = []
+    total_confirmed = total_checked = total_pending = 0
+    tree_totals: dict[str, dict] = {}
+
+    for r in rsvps:
+        checked = r.checked_in_at is not None
+        tree_name = r.invite_tree.name if r.invite_tree else ""
+        entries.append(
+            ManifestEntry(
+                id=r.id,
+                full_name=r.full_name,
+                phone=r.phone,
+                email=r.email,
+                invite_tree_id=r.invite_tree_id,
+                invite_tree_name=tree_name,
+                rsvp_status=r.rsvp_status,
+                seats_requested=r.seats_requested,
+                checked_in=checked,
+                checked_in_at=r.checked_in_at,
+                checked_in_seats=r.checked_in_seats,
+                note_to_celebrant=r.note_to_celebrant,
+                dietary_note=r.dietary_note,
+            )
+        )
+        tt = tree_totals.setdefault(
+            r.invite_tree_id,
+            {"name": tree_name, "guests": 0, "confirmed": 0, "checked": 0},
+        )
+        if r.rsvp_status == "accepted":
+            total_confirmed += r.seats_requested
+            tt["confirmed"] += r.seats_requested
+            tt["guests"] += 1
+        elif r.rsvp_status == "waitlisted":
+            total_pending += r.seats_requested
+        if checked:
+            total_checked += r.checked_in_seats or 0
+            tt["checked"] += r.checked_in_seats or 0
+
+    return GuestManifest(
+        event_id=event.id,
+        event_name=event.name,
+        entries=entries,
+        total_confirmed_seats=total_confirmed,
+        total_checked_in_seats=total_checked,
+        total_pending_seats=total_pending,
+        tree_totals=[
+            ManifestTreeTotal(
+                invite_tree_id=tid,
+                invite_tree_name=v["name"],
+                guests=v["guests"],
+                confirmed_seats=v["confirmed"],
+                checked_in_seats=v["checked"],
+            )
+            for tid, v in tree_totals.items()
+        ],
+    )
 
 
 @router.get("/rsvps/export")
@@ -824,6 +1058,9 @@ def export_rsvps(
             "Attendance",
             "RSVP Status",
             "Seats Requested",
+            "Checked In",
+            "Checked-in Seats",
+            "Checked In At",
             "Note to Celebrant",
             "Dietary/Accessibility Note",
             "Submitted At",
@@ -839,6 +1076,9 @@ def export_rsvps(
                 r.attendance_status,
                 r.rsvp_status,
                 r.seats_requested,
+                "yes" if r.checked_in_at else "no",
+                r.checked_in_seats if r.checked_in_at else "",
+                r.checked_in_at.isoformat() if r.checked_in_at else "",
                 (r.note_to_celebrant or "").replace("\n", " "),
                 (r.dietary_note or "").replace("\n", " "),
                 r.created_at.isoformat(),
@@ -893,17 +1133,38 @@ def dashboard_summary(
         if t.status != "paused" and remaining_seats(db, t) <= 0 and t.allocated_seats > 0
     )
 
+    # Event-day check-in metrics.
+    checked_in_rsvps = int(
+        db.execute(
+            select(func.count(Rsvp.id)).where(
+                Rsvp.event_id == event_id, Rsvp.checked_in_at.is_not(None)
+            )
+        ).scalar_one()
+    )
+    checked_in_seats = int(
+        db.execute(
+            select(func.coalesce(func.sum(Rsvp.checked_in_seats), 0)).where(
+                Rsvp.event_id == event_id, Rsvp.checked_in_at.is_not(None)
+            )
+        ).scalar_one()
+    )
+    accepted = status_counts.get("accepted", 0)
+
     return DashboardSummary(
         total_allocated_seats=total_allocated,
         total_confirmed_seats=confirmed_seats,
         remaining_seats=max(total_allocated - confirmed_seats, 0),
         total_rsvps=total_rsvps,
-        accepted_rsvps=status_counts.get("accepted", 0),
+        accepted_rsvps=accepted,
         declined_rsvps=status_counts.get("declined", 0),
         waitlisted_rsvps=status_counts.get("waitlisted", 0),
         cancelled_rsvps=status_counts.get("cancelled", 0),
         exhausted_trees=exhausted,
         total_trees=len(trees),
+        checked_in_rsvps=checked_in_rsvps,
+        checked_in_seats=checked_in_seats,
+        confirmed_not_checked_in=max(accepted - checked_in_rsvps, 0),
+        check_in_rate=round(checked_in_rsvps / accepted, 4) if accepted else 0.0,
     )
 
 
