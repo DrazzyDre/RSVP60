@@ -25,6 +25,13 @@ Phase 2 additions:
   * invite token resolves to the correct event (share/QR scoping)
   * RSVP deadline auto-close behaviour (auto_close_rsvp on/off)
 
+Phase 3 additions (admin roles + management):
+  * owner-only admin listing/creation; admin & viewer are refused (403)
+  * role change, deactivate/reactivate, inactive admins cannot log in
+  * owner self-lockout guards (own role / self-deactivation)
+  * viewers are read-only (cannot mutate events/trees/RSVPs) but can export
+
+Requires the owner/admin/viewer accounts created by app.seed.
 Uses only the Python standard library (no extra deps).
 """
 
@@ -360,6 +367,96 @@ def main() -> int:
         {"full_name": "Late Guest", "phone": "+2349099999999", "attending": True},
     )
     check("submit after deadline rejected (409)", status == 409, f"status={status} {raw[:100]}")
+
+    # --- Phase 3: admin roles + permissions ------------------------------
+    def _login(email, pw):
+        s, raw = post("/api/admin/login", {"email": email, "password": pw})
+        return s, (json.loads(raw) if s == 200 else raw)
+
+    s, owner = _login("owner@rsvp60.com", "owner123")
+    check("owner can log in", s == 200, str(s))
+    otok = owner["access_token"] if s == 200 else None
+    check(
+        "login response carries role + is_active",
+        s == 200 and owner["admin"]["role"] == "owner" and owner["admin"]["is_active"] is True,
+    )
+    s, viewer = _login("viewer@rsvp60.com", "viewer123")
+    vtok = viewer["access_token"] if s == 200 else None
+    check("viewer can log in", s == 200, str(s))
+
+    # Admin listing is owner-only and never leaks password hashes.
+    s, raw = get("/api/admin/admins", otok)
+    check("owner lists admins", s == 200 and len(json.loads(raw)) == 3, f"{s} {raw[:80]}")
+    check("admin list omits password hash", "hashed_password" not in raw and '"password"' not in raw)
+    s, _ = get("/api/admin/admins", token)  # admin@ has the "admin" role
+    check("admin role cannot list admins (403)", s == 403, str(s))
+    s, _ = get("/api/admin/admins", vtok)
+    check("viewer cannot list admins (403)", s == 403, str(s))
+    s, _ = get("/api/admin/admins")
+    check("anon cannot list admins (401)", s == 401, str(s))
+
+    # Create admin: owner yes, admin/viewer no.
+    s, raw = post(
+        "/api/admin/admins",
+        {"email": "temp-admin@rsvp60.com", "full_name": "Temp", "role": "viewer", "password": "temp1234"},
+        otok,
+    )
+    check("owner creates admin (201)", s == 201, f"{s} {raw[:100]}")
+    temp_id = json.loads(raw)["id"] if s == 201 else None
+    s, _ = post(
+        "/api/admin/admins",
+        {"email": "x@rsvp60.com", "full_name": "X", "role": "viewer", "password": "xxxx1234"},
+        token,
+    )
+    check("admin cannot create admin (403)", s == 403, str(s))
+    s, _ = post(
+        "/api/admin/admins",
+        {"email": "y@rsvp60.com", "full_name": "Y", "role": "viewer", "password": "yyyy1234"},
+        vtok,
+    )
+    check("viewer cannot create admin (403)", s == 403, str(s))
+
+    # Role change works.
+    s, raw = patch(f"/api/admin/admins/{temp_id}", {"role": "admin"}, otok)
+    check("owner changes role viewer->admin", s == 200 and json.loads(raw)["role"] == "admin", f"{s} {raw[:80]}")
+
+    # Deactivate -> inactive cannot log in -> reactivate.
+    s, _ = patch(f"/api/admin/admins/{temp_id}/deactivate", {}, otok)
+    check("owner deactivates admin", s == 200, str(s))
+    s, raw = post("/api/admin/login", {"email": "temp-admin@rsvp60.com", "password": "temp1234"})
+    check("inactive admin cannot log in (403)", s == 403, f"{s} {raw[:60]}")
+    s, _ = patch(f"/api/admin/admins/{temp_id}/reactivate", {}, otok)
+    check("owner reactivates admin", s == 200, str(s))
+
+    # Self-lockout guards.
+    owner_id = owner["admin"]["id"]
+    s, _ = patch(f"/api/admin/admins/{owner_id}", {"role": "admin"}, otok)
+    check("owner cannot change own role (400)", s == 400, str(s))
+    s, _ = patch(f"/api/admin/admins/{owner_id}/deactivate", {}, otok)
+    check("owner cannot deactivate self (400)", s == 400, str(s))
+
+    # Viewer is read-only on core resources.
+    s, _ = patch(f"/api/admin/events/{B}", {"title": "nope"}, vtok)
+    check("viewer cannot edit event (403)", s == 403, str(s))
+    s, _ = post(
+        "/api/admin/invite-trees",
+        {"event_id": B, "name": "V", "allocated_seats": 5, "max_extra_guests": 0},
+        vtok,
+    )
+    check("viewer cannot create invite tree (403)", s == 403, str(s))
+    _, some_rsvps = jget(f"/api/admin/rsvps?event_id={B}", token)
+    if some_rsvps:
+        s, _ = patch(f"/api/admin/rsvps/{some_rsvps[0]['id']}", {"rsvp_status": "cancelled"}, vtok)
+        check("viewer cannot modify RSVP (403)", s == 403, str(s))
+    # Viewer can still read + export.
+    s, _ = get(f"/api/admin/invite-trees?event_id={B}", vtok)
+    check("viewer can read invite trees (200)", s == 200, str(s))
+    s, _ = get(f"/api/admin/rsvps/export?event_id={B}", vtok)
+    check("viewer can export (200)", s == 200, str(s))
+
+    # Admin (editor) can mutate allowed resources.
+    s, _ = patch(f"/api/admin/events/{B}", {"venue_name": "Edited by admin"}, token)
+    check("admin can edit event (200)", s == 200, str(s))
 
     print(f"\n{_passed} passed, {_failed} failed")
     return 0 if _failed == 0 else 1
