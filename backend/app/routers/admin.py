@@ -184,6 +184,16 @@ async def upload_flyer(
             detail="Unsupported image type. Please upload a JPG, PNG or WebP image.",
         )
 
+    max_mb = settings.max_upload_bytes / (1024 * 1024)
+    too_large = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"Image is too large. The maximum size is {max_mb:.0f} MB.",
+    )
+    # Reject oversized uploads up front (when the client reports a size) so we
+    # don't buffer a huge payload just to reject it. Re-checked after read.
+    if file.size is not None and file.size > settings.max_upload_bytes:
+        raise too_large
+
     data = await file.read()
     if not data:
         raise HTTPException(
@@ -191,11 +201,7 @@ async def upload_flyer(
             detail="The uploaded file is empty. Please choose an image.",
         )
     if len(data) > settings.max_upload_bytes:
-        max_mb = settings.max_upload_bytes / (1024 * 1024)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Image is too large. The maximum size is {max_mb:.0f} MB.",
-        )
+        raise too_large
 
     ext = ALLOWED_IMAGE_TYPES[content_type]
     key = f"flyers/{event_id}/{new_uuid()}.{ext}"

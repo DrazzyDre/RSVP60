@@ -143,11 +143,11 @@ class SupabaseStorage:
 
 def get_storage() -> StorageBackend:
     """Return the configured storage backend."""
-    if settings.storage_backend.lower() == "supabase":
+    if settings.is_supabase_storage:
         return SupabaseStorage(
             settings.supabase_url,
-            settings.supabase_service_key,
-            settings.supabase_bucket,
+            settings.supabase_service_role_key,
+            settings.supabase_storage_bucket,
         )
     return LocalStorage(settings.upload_dir)
 
@@ -157,7 +157,7 @@ def ensure_local_upload_dir() -> str | None:
 
     Returns the absolute path when local storage is in use, else ``None``.
     """
-    if settings.storage_backend.lower() == "supabase":
+    if settings.is_supabase_storage:
         return None
     path = Path(settings.upload_dir)
     path.mkdir(parents=True, exist_ok=True)
