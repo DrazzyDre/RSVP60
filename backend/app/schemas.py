@@ -20,6 +20,10 @@ class AdminOut(BaseModel):
     email: str
     full_name: str
     role: str
+    is_active: bool
+    last_login_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class TokenResponse(BaseModel):

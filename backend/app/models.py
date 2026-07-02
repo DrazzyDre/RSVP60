@@ -89,9 +89,16 @@ class Admin(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_uuid)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     full_name: Mapped[str] = mapped_column(String(200), default="")
+    # owner | admin | viewer  (see app.roles)
     role: Mapped[str] = mapped_column(String(50), default="admin")
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Deactivated admins cannot log in and existing tokens stop working.
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
 
 
 class InviteTree(Base):

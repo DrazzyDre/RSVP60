@@ -7,6 +7,7 @@ Everything below (trees, RSVPs, dashboard) is scoped to a single event via an
 import csv
 import io
 from collections import defaultdict
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -15,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
-from ..deps import get_current_admin, log_action
+from ..deps import get_current_admin, log_action, require_editor
 from ..models import Admin, Event, InviteTree, Rsvp, new_uuid
 from ..storage import (
     ALLOWED_IMAGE_TYPES,
@@ -62,6 +63,16 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password.",
         )
+    if not admin.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account has been deactivated. Please contact an owner.",
+        )
+    admin.last_login_at = datetime.utcnow()
+    db.commit()
+    db.refresh(admin)
+    # Role is intentionally NOT baked into the token — it is looked up fresh on
+    # every request, so role/active changes take effect immediately.
     token = create_access_token(admin.id, {"email": admin.email})
     return TokenResponse(access_token=token, admin=AdminOut.model_validate(admin))
 
@@ -114,7 +125,7 @@ def list_events(
 def create_event(
     payload: EventCreate,
     db: Session = Depends(get_db),
-    admin: Admin = Depends(get_current_admin),
+    admin: Admin = Depends(require_editor),
 ):
     event = Event(**payload.model_dump())
     db.add(event)
@@ -139,7 +150,7 @@ def update_event(
     event_id: str,
     payload: EventUpdate,
     db: Session = Depends(get_db),
-    admin: Admin = Depends(get_current_admin),
+    admin: Admin = Depends(require_editor),
 ):
     event = _get_event_or_404(db, event_id)
     data = payload.model_dump(exclude_unset=True)
@@ -173,7 +184,7 @@ async def upload_flyer(
     event_id: str,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    admin: Admin = Depends(get_current_admin),
+    admin: Admin = Depends(require_editor),
 ):
     event = _get_event_or_404(db, event_id)
 
@@ -229,7 +240,7 @@ async def upload_flyer(
 def remove_flyer(
     event_id: str,
     db: Session = Depends(get_db),
-    admin: Admin = Depends(get_current_admin),
+    admin: Admin = Depends(require_editor),
 ):
     event = _get_event_or_404(db, event_id)
     if event.flyer_storage_path:
@@ -358,7 +369,7 @@ def list_invite_trees(
 def create_invite_tree(
     payload: InviteTreeCreate,
     db: Session = Depends(get_db),
-    admin: Admin = Depends(get_current_admin),
+    admin: Admin = Depends(require_editor),
 ):
     _get_event_or_404(db, payload.event_id)
     tree = InviteTree(
@@ -381,7 +392,7 @@ def update_invite_tree(
     tree_id: str,
     payload: InviteTreeUpdate,
     db: Session = Depends(get_db),
-    admin: Admin = Depends(get_current_admin),
+    admin: Admin = Depends(require_editor),
 ):
     tree = db.get(InviteTree, tree_id)
     if tree is None:
@@ -468,7 +479,7 @@ def update_rsvp(
     rsvp_id: str,
     payload: RsvpUpdate,
     db: Session = Depends(get_db),
-    admin: Admin = Depends(get_current_admin),
+    admin: Admin = Depends(require_editor),
 ):
     rsvp = db.get(Rsvp, rsvp_id)
     if rsvp is None:
