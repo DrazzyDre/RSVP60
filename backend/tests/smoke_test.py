@@ -31,6 +31,11 @@ Phase 3 additions (admin roles + management):
   * owner self-lockout guards (own role / self-deactivation)
   * viewers are read-only (cannot mutate events/trees/RSVPs) but can export
 
+Phase 3.5 additions (account security + audit):
+  * weak passwords are rejected on admin creation
+  * owner-only audit log; admin/viewer/anon are refused; no secrets exposed
+  * failed admin logins are rate-limited (429) without blocking valid sign-ins
+
 Requires the owner/admin/viewer accounts created by app.seed.
 Uses only the Python standard library (no extra deps).
 """
@@ -457,6 +462,47 @@ def main() -> int:
     # Admin (editor) can mutate allowed resources.
     s, _ = patch(f"/api/admin/events/{B}", {"venue_name": "Edited by admin"}, token)
     check("admin can edit event (200)", s == 200, str(s))
+
+    # --- Phase 3.5: password policy --------------------------------------
+    for weak in ["admin123", "owner123", "password", "short", "        "]:
+        s, _ = post(
+            "/api/admin/admins",
+            {"email": "weak-test@rsvp60.com", "full_name": "W", "role": "viewer", "password": weak},
+            otok,
+        )
+        check(f"weak password rejected ({weak.strip() or 'blank'})", s == 422, f"status={s}")
+    s, raw = post(
+        "/api/admin/admins",
+        {"email": "strongpw@rsvp60.com", "full_name": "S", "role": "viewer", "password": "Str0ngPass!"},
+        otok,
+    )
+    check("strong password accepted (201)", s == 201, f"{s} {raw[:80]}")
+
+    # --- Phase 3.5: audit log access + redaction -------------------------
+    s, raw = get("/api/admin/audit-logs", otok)
+    check("owner can view audit logs (200)", s == 200, str(s))
+    audit = json.loads(raw) if s == 200 else {"items": [], "total": 0}
+    check("audit log has entries", audit["total"] >= 1, str(audit.get("total")))
+    s, _ = get("/api/admin/audit-logs", token)
+    check("admin cannot view audit logs (403)", s == 403, str(s))
+    s, _ = get("/api/admin/audit-logs", vtok)
+    check("viewer cannot view audit logs (403)", s == 403, str(s))
+    s, _ = get("/api/admin/audit-logs")
+    check("anon cannot view audit logs (401)", s == 401, str(s))
+    _, rawfull = get("/api/admin/audit-logs?limit=500", otok)
+    leaked = [w for w in ("hashed_password", "jwt_secret", "Str0ngPass") if w in rawfull]
+    check("audit log exposes no secrets", not leaked, f"leaked={leaked}")
+    _, rawc = get("/api/admin/audit-logs?action=admin_created", otok)
+    check("audit records admin_created", json.loads(rawc)["total"] >= 1)
+
+    # --- Phase 3.5: login rate limiting (run last) -----------------------
+    brute = {"email": "bruteforce@rsvp60.com", "password": "wrongwrong"}
+    fails = [post("/api/admin/login", brute)[0] for _ in range(5)]
+    check("failed logins return 401 before the limit", all(x == 401 for x in fails), str(fails))
+    s, raw = post("/api/admin/login", brute)
+    check("repeated failed logins are blocked (429)", s == 429, f"status={s} {raw[:80]}")
+    s, _ = post("/api/admin/login", {"email": "owner@rsvp60.com", "password": "owner123"})
+    check("valid login not blocked by another account's failures", s == 200, str(s))
 
     print(f"\n{_passed} passed, {_failed} failed")
     return 0 if _failed == 0 else 1
