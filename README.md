@@ -126,9 +126,17 @@ Storage is pluggable via `STORAGE_BACKEND`:
   `backend/uploads/`, git-ignored) and served by the API from `/media/<path>`.
   Zero-config for local dev and Docker.
 - **`supabase`** — files are pushed to a Supabase Storage bucket. Set
-  `STORAGE_BACKEND=supabase`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` and
-  (optionally) `SUPABASE_BUCKET`. Create a **public** bucket in Supabase Storage
-  named to match `SUPABASE_BUCKET` (default `flyers`).
+  `STORAGE_BACKEND=supabase`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and
+  (optionally) `SUPABASE_STORAGE_BUCKET`. Create a **public** bucket in Supabase
+  Storage named to match `SUPABASE_STORAGE_BUCKET` (default `flyers`). The app
+  refuses to boot in this mode until the URL and key are provided.
+
+**All uploads are backend-only and validated server-side:** the type
+(JPG/PNG/WebP) and size (≤ `MAX_UPLOAD_BYTES`, 5 MB default) are enforced on the
+API, filenames are randomized (`flyers/<event_id>/<uuid>.<ext>` — the client
+filename is never trusted), and the public invite receives only a resolved,
+safe `flyer_image_url`. The **service role key is a server-only secret** and is
+never sent to the frontend or embedded in any `NEXT_PUBLIC_*` variable.
 
 > The local backend stores files on the container's disk. In the dev Docker
 > stack a `backend_uploads` volume keeps them across restarts (wiped by
@@ -290,10 +298,12 @@ convenience.)
 | `MAX_UPLOAD_BYTES`               | `5242880`                     | Max flyer upload size in bytes (5 MB).                              |
 | `MEDIA_BASE_URL`                 | _(empty)_                     | Absolute prefix for media URLs. Empty → app-relative `/media/...`. |
 | `SUPABASE_URL`                   | _(empty)_                     | Supabase project URL (required when `STORAGE_BACKEND=supabase`).    |
-| `SUPABASE_SERVICE_KEY`           | _(empty)_                     | Supabase service role key (required for the supabase backend).     |
-| `SUPABASE_BUCKET`                | `flyers`                      | Supabase Storage bucket name (create it as a **public** bucket).   |
+| `SUPABASE_SERVICE_ROLE_KEY`      | _(empty)_                     | Supabase **service role** key — **server-only secret**, never exposed to the frontend. Required for the supabase backend. |
+| `SUPABASE_STORAGE_BUCKET`        | `flyers`                      | Supabase Storage bucket name (create it as a **public** bucket).   |
 
-The API port is a uvicorn flag (`--port 8010`), not an env var.
+When `STORAGE_BACKEND=supabase`, the app **refuses to boot** unless `SUPABASE_URL`
+and `SUPABASE_SERVICE_ROLE_KEY` are set. The API port is a uvicorn flag
+(`--port 8010`), not an env var.
 
 ### Frontend (`frontend/.env.local`)
 
@@ -487,11 +497,16 @@ A typical production layout: **Vercel** (frontend) + **Render/Railway/Fly.io**
   admin UI. (Provision admin accounts by adapting the seed or a one-off script.)
 
 **Flyer storage (production)**
-- Set `STORAGE_BACKEND=supabase`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, and
-  create a **public** Supabase Storage bucket matching `SUPABASE_BUCKET`
-  (default `flyers`). Uploaded flyers are then served from Supabase and survive
-  redeploys. The `local` backend is fine for a single always-on instance with
-  persistent disk, but ephemeral/multi-instance hosts should use Supabase.
+- Set `STORAGE_BACKEND=supabase`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+  and create a **public** Supabase Storage bucket matching
+  `SUPABASE_STORAGE_BUCKET` (default `flyers`). Uploaded flyers are then served
+  from Supabase and survive redeploys. The app refuses to boot in this mode
+  until the URL and key are set.
+- Keep `SUPABASE_SERVICE_ROLE_KEY` **server-side only** — it must never appear in
+  the frontend or any `NEXT_PUBLIC_*` variable. Upload/delete happen only on the
+  backend; guests only ever receive resolved public image URLs.
+- The `local` backend is fine for a single always-on instance with persistent
+  disk, but ephemeral/multi-instance hosts should use Supabase.
 
 **Frontend (Vercel)**
 - Set `NEXT_PUBLIC_API_URL` to the deployed backend URL.

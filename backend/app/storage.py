@@ -7,7 +7,8 @@ Two backends selected by ``STORAGE_BACKEND``:
   dev and Docker.
 * ``supabase`` — files pushed to a Supabase Storage bucket via its REST API.
   Enabled by setting ``STORAGE_BACKEND=supabase`` plus ``SUPABASE_URL`` and
-  ``SUPABASE_SERVICE_KEY``. Uses only the standard library (no SDK dependency).
+  ``SUPABASE_SERVICE_ROLE_KEY``. Uses only the standard library (no SDK
+  dependency). The service role key is used server-side only.
 
 The router code depends only on the small ``StorageBackend`` interface, so
 swapping backends never touches business logic.
@@ -86,7 +87,7 @@ class SupabaseStorage:
         if not base_url or not service_key:
             raise StorageError(
                 "STORAGE_BACKEND=supabase requires SUPABASE_URL and "
-                "SUPABASE_SERVICE_KEY to be set."
+                "SUPABASE_SERVICE_ROLE_KEY to be set."
             )
         self.base_url = base_url.rstrip("/")
         self.service_key = service_key
