@@ -81,6 +81,7 @@ export default function DashboardPage() {
           value={summary.total_allocated_seats}
           accent="royal"
           icon={<Armchair className="h-5 w-5" />}
+          href="/admin/invite-trees"
         />
         <StatCard
           label="Confirmed seats"
@@ -88,42 +89,49 @@ export default function DashboardPage() {
           accent="green"
           hint={`${summary.remaining_seats} remaining`}
           icon={<CheckCircle2 className="h-5 w-5" />}
+          href="/admin/invite-trees"
         />
         <StatCard
           label="Remaining seats"
           value={summary.remaining_seats}
           accent="gold"
           icon={<Layers className="h-5 w-5" />}
+          href="/admin/invite-trees"
         />
         <StatCard
           label="Total RSVPs"
           value={summary.total_rsvps}
           accent="royal"
           icon={<Users className="h-5 w-5" />}
+          href="/admin/rsvps"
         />
         <StatCard
           label="Accepted"
           value={summary.accepted_rsvps}
           accent="green"
           icon={<CalendarCheck className="h-5 w-5" />}
+          href="/admin/rsvps?status=accepted"
         />
         <StatCard
           label="Declined"
           value={summary.declined_rsvps}
           accent="red"
           icon={<UserX className="h-5 w-5" />}
+          href="/admin/rsvps?status=declined"
         />
         <StatCard
           label="Waitlisted"
           value={summary.waitlisted_rsvps}
           accent="amber"
           icon={<Clock className="h-5 w-5" />}
+          href="/admin/rsvps?status=waitlisted"
         />
         <StatCard
           label="Exhausted trees"
           value={`${summary.exhausted_trees}/${summary.total_trees}`}
           accent="gray"
           icon={<Layers className="h-5 w-5" />}
+          href="/admin/invite-trees"
         />
       </div>
 

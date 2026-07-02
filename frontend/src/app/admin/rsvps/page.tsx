@@ -30,6 +30,12 @@ export default function RsvpsPage() {
   const [search, setSearch] = useState("");
   const [exporting, setExporting] = useState(false);
 
+  // Honour a ?status= deep link (e.g. from the dashboard stat cards).
+  useEffect(() => {
+    const s = new URLSearchParams(window.location.search).get("status");
+    if (s && (STATUSES as string[]).includes(s)) setStatusFilter(s);
+  }, []);
+
   const query = useMemo(() => {
     const p = new URLSearchParams();
     if (selectedEventId) p.set("event_id", selectedEventId);
