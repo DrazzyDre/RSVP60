@@ -36,6 +36,13 @@ Phase 3.5 additions (account security + audit):
   * owner-only audit log; admin/viewer/anon are refused; no secrets exposed
   * failed admin logins are rate-limited (429) without blocking valid sign-ins
 
+Phase 4 additions (event-day check-in + manifest):
+  * accepted guests can be checked in; waitlisted/declined cannot
+  * duplicate check-in blocked; checked-in seats bounded to 1..seats_requested
+  * viewers can view but not perform check-in; anon is refused
+  * check-in token search and guest manifest are event-scoped; audit is recorded
+  * public invite never exposes check-in fields
+
 Requires the owner/admin/viewer accounts created by app.seed.
 Uses only the Python standard library (no extra deps).
 """
@@ -494,6 +501,65 @@ def main() -> int:
     check("audit log exposes no secrets", not leaked, f"leaked={leaked}")
     _, rawc = get("/api/admin/audit-logs?action=admin_created", otok)
     check("audit records admin_created", json.loads(rawc)["total"] >= 1)
+
+    # --- Phase 4: event-day check-in + manifest --------------------------
+    _, roster = jget(f"/api/admin/check-in/search?event_id={B}", token)
+    check("check-in roster is accepted-only", all(r["rsvp_status"] == "accepted" for r in roster))
+    target = roster[0]
+    ci_seats = target["seats_requested"]
+
+    s, _ = get(f"/api/admin/check-in/search?event_id={B}", vtok)
+    check("viewer can view check-in search (200)", s == 200)
+    s, _ = post(f"/api/admin/rsvps/{target['id']}/check-in", {}, vtok)
+    check("viewer cannot check in (403)", s == 403, str(s))
+    s, _ = get(f"/api/admin/check-in/search?event_id={B}")
+    check("anon cannot access check-in search (401)", s == 401, str(s))
+
+    s, raw = post(f"/api/admin/rsvps/{target['id']}/check-in", {}, token)
+    check("editor checks in accepted guest (200)", s == 200, f"{s} {raw[:100]}")
+    ci = json.loads(raw)
+    check("checked_in_seats defaults to seats_requested", ci["checked_in_seats"] == ci_seats)
+    check("records who checked in", ci["checked_in_by"] is not None)
+    s, _ = post(f"/api/admin/rsvps/{target['id']}/check-in", {}, token)
+    check("duplicate check-in blocked (409)", s == 409, str(s))
+
+    s, _ = patch(f"/api/admin/rsvps/{target['id']}/checked-in-seats", {"checked_in_seats": ci_seats + 5}, token)
+    check("checked-in seats cannot exceed requested (400)", s == 400, str(s))
+    s, _ = patch(f"/api/admin/rsvps/{target['id']}/checked-in-seats", {"checked_in_seats": 0}, token)
+    check("checked-in seats must be positive (422)", s == 422, str(s))
+
+    _, wl4 = jget(f"/api/admin/rsvps?event_id={B}&status=waitlisted", token)
+    if wl4:
+        s, _ = post(f"/api/admin/rsvps/{wl4[0]['id']}/check-in", {}, token)
+        check("waitlisted RSVP cannot be checked in (400)", s == 400, str(s))
+    _, dec4 = jget(f"/api/admin/rsvps?event_id={B}&status=declined", token)
+    if dec4:
+        s, _ = post(f"/api/admin/rsvps/{dec4[0]['id']}/check-in", {}, token)
+        check("declined RSVP cannot be checked in (400)", s == 400, str(s))
+
+    tok4 = target["check_in_token"]
+    _, byid4 = jget(f"/api/admin/check-in/search?event_id={B}&token={tok4}", token)
+    check("token search resolves the guest", len(byid4) == 1 and byid4[0]["id"] == target["id"])
+    _, cross4 = jget(f"/api/admin/check-in/search?event_id={W}&token={tok4}", token)
+    check("token search is event-scoped", len(cross4) == 0)
+
+    s, man4 = jget(f"/api/admin/guest-manifest?event_id={B}", vtok)
+    check("viewer can view manifest (200)", s == 200)
+    check(
+        "manifest scoped + has totals",
+        man4["event_id"] == B and man4["total_confirmed_seats"] > 0 and man4["total_checked_in_seats"] >= 1,
+    )
+    _, manW4 = jget(f"/api/admin/guest-manifest?event_id={W}", token)
+    check("manifest scoped: birthday guest not in wedding", all(e["id"] != target["id"] for e in manW4["entries"]))
+
+    _, summ4 = jget(f"/api/admin/dashboard/summary?event_id={B}", token)
+    check("dashboard has check-in metrics", summ4["checked_in_rsvps"] >= 1 and summ4["checked_in_seats"] >= 1)
+
+    _, aud4 = jget("/api/admin/audit-logs?action=rsvp_checked_in", otok)
+    check("audit records rsvp_checked_in", aud4["total"] >= 1)
+
+    _, pub4 = jget(f"/api/invites/{FAM_TOKEN}")
+    check("public invite hides check-in fields", "check_in_token" not in json.dumps(pub4) and "checked_in" not in json.dumps(pub4))
 
     # --- Phase 3.5: login rate limiting (run last) -----------------------
     brute = {"email": "bruteforce@rsvp60.com", "password": "wrongwrong"}
