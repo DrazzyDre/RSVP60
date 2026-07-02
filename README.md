@@ -22,6 +22,7 @@ a single event.
 - [Core concepts](#core-concepts)
 - [Invite presentation & sharing](#invite-presentation--sharing)
 - [Flyer uploads & storage](#flyer-uploads--storage)
+- [Admin roles & management](#admin-roles--management)
 - [Project structure](#project-structure)
 - [Running locally](#running-locally)
   - [Option A — Docker Compose (recommended)](#option-a--docker-compose-recommended)
@@ -145,6 +146,33 @@ never sent to the frontend or embedded in any `NEXT_PUBLIC_*` variable.
 
 ---
 
+## Admin roles & management
+
+Admins have one of three roles. **All permissions are enforced on the backend**;
+the frontend only mirrors them to show/hide UI.
+
+| Capability                          | Owner | Admin | Viewer |
+| ----------------------------------- | :---: | :---: | :----: |
+| View dashboard / trees / RSVPs      |  ✅   |  ✅   |   ✅   |
+| Export RSVPs (CSV)                  |  ✅   |  ✅   |   ✅   |
+| Create / edit events, trees, RSVPs  |  ✅   |  ✅   |   ❌   |
+| Upload / remove flyers              |  ✅   |  ✅   |   ❌   |
+| Manage admins (create/role/disable) |  ✅   |  ❌   |   ❌   |
+
+- **Owners** manage other admins from **`/admin/admins`** (owner-only): create an
+  admin, set their role, deactivate/reactivate, and set/reset a password.
+- **Inactive admins cannot log in**, and any existing token stops working
+  immediately (role/active status is checked fresh on every request, never baked
+  into the JWT).
+- Lock-out guards: an owner cannot change their own role or deactivate
+  themselves, and the last active owner cannot be demoted or deactivated.
+- Any admin can change their own password from **Settings**.
+- Sensitive admin actions (admin created / role changed / (de)activated /
+  password reset, plus event & RSVP changes) are recorded to the `audit_logs`
+  table.
+
+---
+
 ## Project structure
 
 ```
@@ -153,7 +181,7 @@ RSVP60/
 ├── backend/                  # FastAPI app
 │   ├── Dockerfile
 │   ├── alembic.ini           # Alembic config (DB URL comes from settings)
-│   ├── migrations/           # Alembic env + versions/0001_… + 0002_event_branding…
+│   ├── migrations/           # Alembic env + versions/0001_… 0002_… 0003_admin_roles
 │   ├── uploads/              # local flyer storage (git-ignored; local backend)
 │   ├── app/
 │   │   ├── main.py           # entrypoint: runtime validation, health, /media mount
@@ -162,8 +190,9 @@ RSVP60/
 │   │   ├── models.py         # events, admins, invite_trees, rsvps, audit_logs
 │   │   ├── schemas.py        # Pydantic request/response models
 │   │   ├── security.py       # password hashing + JWT
+│   │   ├── roles.py          # owner/admin/viewer role model + permissions
 │   │   ├── storage.py        # pluggable flyer storage (local / supabase)
-│   │   ├── deps.py           # auth dependency + audit helper
+│   │   ├── deps.py           # auth + role dependencies + audit helper
 │   │   ├── seat_logic.py     # all seat/quota/waitlist rules
 │   │   ├── ratelimit.py      # in-memory RSVP rate limiter
 │   │   ├── utils.py          # phone normalization
@@ -317,13 +346,13 @@ and `SUPABASE_SERVICE_ROLE_KEY` are set. The API port is a uvicorn flag
 
 After running `python -m app.seed`:
 
-**Admin logins**
+**Admin logins** (one per role)
 
-| Email               | Password     |
-| ------------------- | ------------ |
-| `admin@rsvp60.com`  | `admin123`   |
-| `host@rsvp60.com`   | `host1234`   |
-| `planner@rsvp60.com`| `planner123` |
+| Email                | Password     | Role     |
+| -------------------- | ------------ | -------- |
+| `owner@rsvp60.com`   | `owner123`   | owner    |
+| `admin@rsvp60.com`   | `admin123`   | admin    |
+| `viewer@rsvp60.com`  | `viewer123`  | viewer   |
 
 **Seeded events:** _Chief Emmanuel Adeyemi's 60th Birthday_ (4 trees) and
 _Tolu & Bisi's Wedding_ (2 trees).
@@ -463,7 +492,9 @@ commands directly.
 - `POST /api/invites/{token}/rsvp` — submit/update an RSVP (rate limited)
 
 **Admin** (require `Authorization: Bearer <token>`)
-- `POST  /api/admin/login` · `GET /api/admin/me`
+- `POST  /api/admin/login` · `GET /api/admin/me` · `PATCH /api/admin/me/password`
+- `GET   /api/admin/admins` · `POST /api/admin/admins` (owner only)
+- `PATCH /api/admin/admins/{id}` · `…/password` · `…/deactivate` · `…/reactivate` (owner only)
 - `GET   /api/admin/events` · `POST /api/admin/events` · `GET|PATCH /api/admin/events/{id}`
 - `POST  /api/admin/events/{id}/flyer` (multipart image) · `DELETE …/flyer`
 - `GET   /api/admin/events/{id}/readiness` — pre-share checklist
@@ -521,6 +552,10 @@ A typical production layout: **Vercel** (frontend) + **Render/Railway/Fly.io**
   request; production refuses the insecure default secret.
 - **Auth**: all `/api/admin/*` routes (except `login`) require a valid Bearer
   token and reject anonymous/invalid/expired tokens with `401`.
+- **Roles**: owner/admin/viewer permissions are enforced server-side (viewers are
+  read-only; only owners manage admins). Deactivated accounts are rejected at
+  login and on every request, so revoking access is immediate. Passwords are
+  never returned by any endpoint.
 - **Frontend** stores only the JWT (in `localStorage`) to authorize API calls;
   no other sensitive data is persisted client-side.
 - **CORS** is driven strictly by `CORS_ORIGINS` (no wildcard).
@@ -534,7 +569,8 @@ A typical production layout: **Vercel** (frontend) + **Render/Railway/Fly.io**
 
 ## Known limitations
 
-- Admin accounts are seed-provisioned — no in-app user management/self-signup.
+- Owners manage admin accounts in-app (`/admin/admins`); there is no **public**
+  self-signup — accounts are always provisioned by an owner (or the dev seed).
 - The RSVP rate limiter is **in-process** (fine for a single instance). Behind a
   multi-instance load balancer, use a shared store (e.g. Redis) instead.
 - Duplicate protection is one RSVP per **phone number per event**; guests update

@@ -107,8 +107,8 @@ export default function SettingsPage() {
             has its own invite trees, seat allocations and RSVPs.
           </p>
           <p>
-            Admin accounts are provisioned via the backend seed script. Contact your
-            system administrator to add or remove admins.
+            Owners can add, deactivate and set roles for admin accounts from the
+            Admins page. If you don&apos;t see it, ask an owner for access.
           </p>
         </CardContent>
       </Card>
