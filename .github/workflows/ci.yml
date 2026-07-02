@@ -48,6 +48,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # Fast, dependency-free unit tests (storage abstraction + upload safety).
+      # No database or live server required.
+      - name: Run unit tests
+        run: python -m unittest tests.test_storage -v
+
       # Migrations are the source of truth for the schema — apply them against
       # PostgreSQL (not just the SQLite dev DB) so drift is caught in CI.
       - name: Apply Alembic migrations to PostgreSQL
