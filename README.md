@@ -23,6 +23,7 @@ a single event.
 - [Invite presentation & sharing](#invite-presentation--sharing)
 - [Flyer uploads & storage](#flyer-uploads--storage)
 - [Admin roles & management](#admin-roles--management)
+- [Account security & audit log](#account-security--audit-log)
 - [Project structure](#project-structure)
 - [Running locally](#running-locally)
   - [Option A — Docker Compose (recommended)](#option-a--docker-compose-recommended)
@@ -170,6 +171,28 @@ the frontend only mirrors them to show/hide UI.
 - Sensitive admin actions (admin created / role changed / (de)activated /
   password reset, plus event & RSVP changes) are recorded to the `audit_logs`
   table.
+
+---
+
+## Account security & audit log
+
+- **Login rate limiting** — repeated *failed* admin sign-ins are throttled per
+  client IP + email. After `LOGIN_RATE_LIMIT_MAX_FAILURES` failures (default 5)
+  within `LOGIN_RATE_LIMIT_WINDOW_SECONDS` (default 300s) the endpoint returns a
+  friendly `429` with `Retry-After`. Only failures count and a successful
+  sign-in clears the counter, so normal logins and authenticated API usage are
+  never throttled. Like the RSVP limiter it is **in-process** — use a shared
+  store (Redis) behind a multi-instance load balancer.
+- **Password policy** — admin creation, owner password reset and self password
+  change require a password that is at least 8 characters, not blank/whitespace,
+  and not an obviously weak one (e.g. `password`, `admin123`, `12345678`). It is
+  intentionally minimal — not a full enterprise policy. (The dev seed sets its
+  demo passwords directly, bypassing the policy.)
+- **Audit log viewer** — owners can review recorded actions at **`/admin/audit`**
+  (`GET /api/admin/audit-logs`, owner-only). Filter by action, admin, entity
+  type and date range. Metadata is summarized and any value under a
+  sensitive-looking key (password/secret/token/hash/key) is redacted — the app
+  never logs secrets, and this guarantees it.
 
 ---
 
@@ -322,6 +345,8 @@ convenience.)
 | `CORS_ORIGINS`                   | `http://localhost:3005,...`   | Comma-separated allowed origins (no wildcards).                    |
 | `RSVP_RATE_LIMIT_MAX`            | `8`                           | Max public RSVP submissions per IP per window.                     |
 | `RSVP_RATE_LIMIT_WINDOW_SECONDS` | `60`                          | Rate-limit window in seconds.                                      |
+| `LOGIN_RATE_LIMIT_MAX_FAILURES`  | `5`                           | Failed admin logins (per IP+email) before a `429` block.           |
+| `LOGIN_RATE_LIMIT_WINDOW_SECONDS`| `300`                         | Window for counting failed logins, in seconds.                     |
 | `STORAGE_BACKEND`                | `local`                       | `local` (files under `UPLOAD_DIR`, served from `/media`) or `supabase`. |
 | `UPLOAD_DIR`                     | `uploads`                     | Local flyer directory (local backend), relative to the backend dir. |
 | `MAX_UPLOAD_BYTES`               | `5242880`                     | Max flyer upload size in bytes (5 MB).                              |
@@ -495,6 +520,7 @@ commands directly.
 - `POST  /api/admin/login` · `GET /api/admin/me` · `PATCH /api/admin/me/password`
 - `GET   /api/admin/admins` · `POST /api/admin/admins` (owner only)
 - `PATCH /api/admin/admins/{id}` · `…/password` · `…/deactivate` · `…/reactivate` (owner only)
+- `GET   /api/admin/audit-logs` (owner only; filters: action, admin_id, entity_type, since, until, limit, offset)
 - `GET   /api/admin/events` · `POST /api/admin/events` · `GET|PATCH /api/admin/events/{id}`
 - `POST  /api/admin/events/{id}/flyer` (multipart image) · `DELETE …/flyer`
 - `GET   /api/admin/events/{id}/readiness` — pre-share checklist
@@ -556,6 +582,13 @@ A typical production layout: **Vercel** (frontend) + **Render/Railway/Fly.io**
   read-only; only owners manage admins). Deactivated accounts are rejected at
   login and on every request, so revoking access is immediate. Passwords are
   never returned by any endpoint.
+- **Login throttling**: repeated failed admin logins (per IP+email) are blocked
+  with a `429` to slow brute force; successful logins and normal API calls are
+  unaffected.
+- **Password policy**: admin passwords must be ≥8 chars, non-blank, and not an
+  obviously weak one.
+- **Audit log**: owner-only viewer over recorded admin actions; metadata is
+  redacted of any sensitive-looking values.
 - **Frontend** stores only the JWT (in `localStorage`) to authorize API calls;
   no other sensitive data is persisted client-side.
 - **CORS** is driven strictly by `CORS_ORIGINS` (no wildcard).
@@ -571,8 +604,12 @@ A typical production layout: **Vercel** (frontend) + **Render/Railway/Fly.io**
 
 - Owners manage admin accounts in-app (`/admin/admins`); there is no **public**
   self-signup — accounts are always provisioned by an owner (or the dev seed).
-- The RSVP rate limiter is **in-process** (fine for a single instance). Behind a
-  multi-instance load balancer, use a shared store (e.g. Redis) instead.
+- The RSVP **and** admin-login rate limiters are **in-process** (fine for a
+  single instance). Behind a multi-instance load balancer, use a shared store
+  (e.g. Redis) instead, or the per-instance counters can be bypassed.
+- The password policy is intentionally minimal (length + blocklist); there is no
+  breach-list check, rotation, or history. Password resets are owner-driven —
+  there is no email-based self-service reset (out of scope for this phase).
 - Duplicate protection is one RSVP per **phone number per event**; guests update
   their RSVP by re-submitting with the same phone number.
 - No email/SMS notifications, QR **check-in** (QR **generation** for invite links
