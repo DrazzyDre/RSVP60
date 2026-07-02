@@ -17,6 +17,14 @@ Verifies (per Phase 1.5 goal 5):
   * admin promotion waitlisted -> accepted validates available seats
   * CSV export is scoped per event
 
+Phase 2 additions:
+  * event branding update (headline / message / theme) persists + coerces bad themes
+  * flyer upload accepts images, rejects non-images, serves + removes the file
+  * public invite exposes the resolved flyer image and theme, still hides tree name
+  * readiness checklist endpoint (scoped to the event)
+  * invite token resolves to the correct event (share/QR scoping)
+  * RSVP deadline auto-close behaviour (auto_close_rsvp on/off)
+
 Uses only the Python standard library (no extra deps).
 """
 
@@ -33,6 +41,13 @@ ADMIN_PASSWORD = os.getenv("SMOKE_ADMIN_PASSWORD", "admin123")
 # Fixed demo tokens created by app.seed.
 FAM_TOKEN = "fam-demo-token-000000000001"
 VIP_TOKEN = "vip-demo-token-00000000000004"
+WED_BRIDE_TOKEN = "wed-bride-token-00000000000005"
+
+# 1x1 transparent PNG used to exercise flyer upload.
+PNG_1x1 = bytes.fromhex(
+    "89504e470d0a1a0a0000000d494844520000000100000001080600000"
+    "01f15c4890000000d49444154789c6360000002000154a24f6f0000000049454e44ae426082"
+)
 
 _passed = 0
 _failed = 0
@@ -73,6 +88,45 @@ def post(path, body, token=None):
 
 def patch(path, body, token=None):
     return _request("PATCH", path, token, body)
+
+
+def delete(path, token=None):
+    return _request("DELETE", path, token)
+
+
+def get_status(path, token=None):
+    """GET returning only the status code (safe for binary responses)."""
+    url = f"{BASE_URL}{path}"
+    headers = {}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return resp.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+def post_multipart(path, token, field, filename, content_type, body):
+    boundary = "----rsvp60smoke"
+    pre = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'
+        f"Content-Type: {content_type}\r\n\r\n"
+    ).encode()
+    data = pre + body + f"\r\n--{boundary}--\r\n".encode()
+    headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(
+        f"{BASE_URL}{path}", data=data, headers=headers, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return resp.status, resp.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")
 
 
 def jget(path, token=None):
@@ -219,6 +273,93 @@ def main() -> int:
     check("CSV birthday excludes wedding guests", "Yemi Bright" not in csvB)
     status, csvW = get(f"/api/admin/rsvps/export?event_id={W}", token)
     check("CSV export (wedding) scoped", "Yemi Bright" in csvW and "Bola Adeyemi" not in csvW)
+
+    # --- Phase 2: event branding update ----------------------------------
+    status, raw = patch(
+        f"/api/admin/events/{B}",
+        {
+            "invite_headline": "Smoke Headline",
+            "invite_message": "Smoke message copy",
+            "theme_preset": "joyful",
+        },
+        token,
+    )
+    check("event branding update ok", status == 200, f"status={status} {raw[:120]}")
+    _, ev = jget(f"/api/admin/events/{B}", token)
+    check(
+        "branding fields persist",
+        ev.get("invite_headline") == "Smoke Headline"
+        and ev.get("invite_message") == "Smoke message copy"
+        and ev.get("theme_preset") == "joyful",
+        str({k: ev.get(k) for k in ("invite_headline", "theme_preset")}),
+    )
+    patch(f"/api/admin/events/{B}", {"theme_preset": "nonsense"}, token)
+    _, ev = jget(f"/api/admin/events/{B}", token)
+    check("invalid theme_preset coerced to elegant", ev.get("theme_preset") == "elegant",
+          str(ev.get("theme_preset")))
+    _, inv = jget(f"/api/invites/{FAM_TOKEN}")
+    check("public invite exposes theme + headline",
+          inv["event"].get("theme_preset") == "elegant"
+          and inv["event"].get("invite_headline") == "Smoke Headline")
+
+    # --- Phase 2: flyer upload validation --------------------------------
+    status, raw = post_multipart(
+        f"/api/admin/events/{B}/flyer", token, "file", "flyer.png", "image/png", PNG_1x1
+    )
+    check("flyer upload (png) -> 200", status == 200, f"status={status} {raw[:120]}")
+    up = json.loads(raw) if status == 200 else {}
+    check("flyer_storage_path set", bool(up.get("flyer_storage_path")))
+    media = up.get("flyer_image_url", "")
+    check("flyer_image_url is a /media path", media.startswith("/media/"), media)
+    check("uploaded flyer file is served", get_status(media) == 200, f"path={media}")
+    _, inv = jget(f"/api/invites/{FAM_TOKEN}")
+    check("public invite exposes uploaded flyer", bool(inv["event"].get("flyer_image_url")))
+    status, raw = post_multipart(
+        f"/api/admin/events/{B}/flyer", token, "file", "note.txt", "text/plain", b"nope"
+    )
+    check("reject non-image upload -> 400", status == 400, f"status={status} {raw[:100]}")
+    status, raw = delete(f"/api/admin/events/{B}/flyer", token)
+    check("remove flyer -> 200", status == 200, f"status={status}")
+    check("flyer_storage_path cleared", json.loads(raw).get("flyer_storage_path") == "")
+
+    # --- Phase 2: readiness checklist (scoped) ---------------------------
+    status, rd = jget(f"/api/admin/events/{B}/readiness", token)
+    check("readiness endpoint ok", status == 200, str(status))
+    keys = {i["key"]: i["done"] for i in rd["items"]}
+    check(
+        "readiness items present",
+        set(keys) == {"details", "flyer", "venue_map", "gifts", "trees", "deadline"},
+        str(set(keys)),
+    )
+    check("readiness: birthday has invite trees", keys.get("trees") is True)
+    check("readiness: flyer not done after removal", keys.get("flyer") is False)
+
+    # --- Phase 2: invite token resolves to the right event (share/QR) -----
+    _, invW = jget(f"/api/invites/{WED_BRIDE_TOKEN}")
+    check(
+        "wedding tree token resolves to wedding host",
+        invW["event"]["host_or_celebrant_name"] == "Tolu & Bisi",
+        invW["event"].get("host_or_celebrant_name"),
+    )
+    check("wedding public invite hides tree name", "Bride's Family" not in json.dumps(invW))
+    famB = tree_by_name(token, B, "Family")
+    check("birthday Family invite_url embeds its own token",
+          famB["token"] in famB["invite_url"], famB.get("invite_url"))
+
+    # --- Phase 2: RSVP deadline auto-close behavior (wedding) -------------
+    PAST = "2000-01-01T00:00:00"
+    patch(f"/api/admin/events/{W}", {"rsvp_deadline": PAST, "auto_close_rsvp": True}, token)
+    _, invW = jget(f"/api/invites/{WED_BRIDE_TOKEN}")
+    check("past deadline + auto_close closes RSVPs", invW["accepting_rsvps"] is False)
+    patch(f"/api/admin/events/{W}", {"auto_close_rsvp": False}, token)
+    _, invW = jget(f"/api/invites/{WED_BRIDE_TOKEN}")
+    check("auto_close False keeps RSVPs open past deadline", invW["accepting_rsvps"] is True)
+    patch(f"/api/admin/events/{W}", {"auto_close_rsvp": True}, token)
+    status, raw = post(
+        f"/api/invites/{WED_BRIDE_TOKEN}/rsvp",
+        {"full_name": "Late Guest", "phone": "+2349099999999", "attending": True},
+    )
+    check("submit after deadline rejected (409)", status == 409, f"status={status} {raw[:100]}")
 
     print(f"\n{_passed} passed, {_failed} failed")
     return 0 if _failed == 0 else 1
