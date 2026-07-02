@@ -171,7 +171,7 @@ export default function DashboardPage() {
             value={`${Math.round(summary.check_in_rate * 100)}%`}
             accent="gold"
             icon={<Percent className="h-5 w-5" />}
-            href="/admin/check-in"
+            href="/admin/manifest"
           />
         </div>
       </div>

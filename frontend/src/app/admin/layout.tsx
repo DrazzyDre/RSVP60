@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   CalendarRange,
+  ClipboardList,
   LayoutDashboard,
   ListTree,
   LogOut,
@@ -37,6 +38,7 @@ const NAV: NavItem[] = [
   { href: "/admin/invite-trees", label: "Invite Trees", icon: ListTree },
   { href: "/admin/rsvps", label: "RSVPs", icon: Users },
   { href: "/admin/check-in", label: "Check-in", icon: UserCheck },
+  { href: "/admin/manifest", label: "Manifest", icon: ClipboardList },
   { href: "/admin/admins", label: "Admins", icon: ShieldCheck, ownerOnly: true },
   { href: "/admin/audit", label: "Audit", icon: ScrollText, ownerOnly: true },
   { href: "/admin/settings", label: "Settings", icon: Settings },
@@ -96,9 +98,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <AuthProvider admin={admin}>
       <EventProvider>
-      <div className="flex h-screen flex-col overflow-hidden bg-muted/40 lg:flex-row">
+      <div className="flex h-screen flex-col overflow-hidden bg-muted/40 lg:flex-row print:h-auto print:overflow-visible">
         {/* Sidebar (desktop) — fixed full height; does not scroll with content */}
-        <aside className="hidden w-64 flex-shrink-0 border-r bg-white lg:flex lg:flex-col">
+        <aside className="hidden w-64 flex-shrink-0 border-r bg-white lg:flex lg:flex-col print:hidden">
           <div className="border-b p-6">
             <p className="font-serif text-xl font-bold text-royal">RSVP60</p>
             <p className="text-xs text-muted-foreground">Admin Console</p>
@@ -130,7 +132,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </aside>
 
         {/* Content column — only this region scrolls */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col print:block print:min-h-0">
           <header className="flex items-center justify-between border-b bg-white px-4 py-3 lg:hidden">
             <p className="font-serif text-lg font-bold text-royal">RSVP60</p>
             <Button variant="ghost" size="sm" onClick={logout}>
@@ -157,7 +159,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             ))}
           </nav>
 
-          <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+          <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 print:overflow-visible print:p-0">
             {children}
           </main>
         </div>

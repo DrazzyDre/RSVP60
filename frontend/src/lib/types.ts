@@ -195,6 +195,40 @@ export interface EventReadiness {
   total: number;
 }
 
+export interface ManifestEntry {
+  id: string;
+  full_name: string;
+  phone: string;
+  email: string | null;
+  invite_tree_id: string;
+  invite_tree_name: string;
+  rsvp_status: RsvpStatus;
+  seats_requested: number;
+  checked_in: boolean;
+  checked_in_at: string | null;
+  checked_in_seats: number | null;
+  note_to_celebrant: string | null;
+  dietary_note: string | null;
+}
+
+export interface ManifestTreeTotal {
+  invite_tree_id: string;
+  invite_tree_name: string;
+  guests: number;
+  confirmed_seats: number;
+  checked_in_seats: number;
+}
+
+export interface GuestManifest {
+  event_id: string;
+  event_name: string;
+  entries: ManifestEntry[];
+  total_confirmed_seats: number;
+  total_checked_in_seats: number;
+  total_pending_seats: number;
+  tree_totals: ManifestTreeTotal[];
+}
+
 export interface AuditLogEntry {
   id: string;
   created_at: string;
