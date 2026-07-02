@@ -24,6 +24,7 @@ a single event.
 - [Flyer uploads & storage](#flyer-uploads--storage)
 - [Admin roles & management](#admin-roles--management)
 - [Account security & audit log](#account-security--audit-log)
+- [Event-day check-in & manifest](#event-day-check-in--manifest)
 - [Project structure](#project-structure)
 - [Running locally](#running-locally)
   - [Option A — Docker Compose (recommended)](#option-a--docker-compose-recommended)
@@ -196,6 +197,37 @@ the frontend only mirrors them to show/hide UI.
 
 ---
 
+## Event-day check-in & manifest
+
+Tools for running the actual event, all scoped to the selected event.
+
+- **Check-in** (`/admin/check-in`) — a fast, tablet/phone-friendly page. Search by
+  name/phone/email (or open the accepted roster), then check a guest in.
+  - **Seats, not people:** check-in records `checked_in_seats`, defaulting to the
+    RSVP's `seats_requested`. If a "Me +1" guest arrives alone, set it to 1.
+    Checked-in seats are bounded to `1..seats_requested`.
+  - Only **accepted** RSVPs are eligible; waitlisted/declined/cancelled guests
+    show a warning and can't be checked in until an editor changes their status.
+  - Duplicate check-in is prevented; check-in records **when** and **who**.
+    Editors (owner/admin) can undo or adjust seats; **viewers can view but not
+    perform check-in** (enforced on the backend).
+- **Guest QR codes** — each RSVP has a random `check_in_token` (never a database
+  id). Its QR encodes `/admin/check-in?token=…`, so scanning it on the (login-
+  protected) check-in page jumps straight to that guest. View / download PNG·SVG
+  / copy from the check-in card.
+- **Guest manifest** (`/admin/manifest`) — a print-friendly door list grouped by
+  invite tree, with per-tree totals (guests / confirmed seats / checked-in seats)
+  and grand totals (confirmed / checked-in / waitlisted seats). A **Print** button
+  produces a clean sheet (the app chrome is hidden on print). Full guest data is
+  also downloadable as **CSV** from the RSVPs page (now including checked-in
+  columns).
+- **Dashboard** gains an *Event-day check-in* card row: checked-in guests,
+  checked-in seats, not-yet-checked-in, and check-in rate.
+
+All check-in endpoints are admin-protected — **guests cannot check themselves in**.
+
+---
+
 ## Project structure
 
 ```
@@ -204,7 +236,7 @@ RSVP60/
 ├── backend/                  # FastAPI app
 │   ├── Dockerfile
 │   ├── alembic.ini           # Alembic config (DB URL comes from settings)
-│   ├── migrations/           # Alembic env + versions/0001_… 0002_… 0003_admin_roles
+│   ├── migrations/           # Alembic env + versions/0001…0004_rsvp_check_in
 │   ├── uploads/              # local flyer storage (git-ignored; local backend)
 │   ├── app/
 │   │   ├── main.py           # entrypoint: runtime validation, health, /media mount
@@ -411,10 +443,11 @@ python -m tests.smoke_test          # BASE_URL defaults to http://localhost:8010
 It asserts: event scoping, invite-tree scoping, secure token resolution, no
 tree-name leak on the public endpoint, duplicate-RSVP-by-phone, seat
 release/recalculation on update, accepted-vs-waitlisted seat counting, admin
-promotion seat validation, and per-event CSV export — plus the Phase 2
-behaviours: event branding updates, flyer upload validation/serving/removal, the
-readiness checklist, invite-token → correct-event scoping, and RSVP deadline
-auto-close.
+promotion seat validation, and per-event CSV export — plus later phases: event
+branding/flyer upload/readiness/deadline auto-close (Phase 2); admin
+roles/management (Phase 3); login rate limiting, password policy and audit
+access (Phase 3.5); and event-day check-in, seat-bounded check-in, and the guest
+manifest (Phase 4).
 
 ---
 
@@ -527,7 +560,10 @@ commands directly.
 - `GET   /api/admin/invite-trees?event_id=…` · `POST` · `PATCH /api/admin/invite-trees/{id}`
 - `GET   /api/admin/rsvps?event_id=…` (filters: `status`, `invite_tree_id`, `search`)
 - `PATCH /api/admin/rsvps/{id}`
-- `GET   /api/admin/rsvps/export?event_id=…` — CSV
+- `GET   /api/admin/rsvps/export?event_id=…` — CSV (with checked-in columns)
+- `GET   /api/admin/check-in/search?event_id=…` (`q` or `token`; any active admin)
+- `POST  /api/admin/rsvps/{id}/check-in` · `…/undo-check-in` · `PATCH …/checked-in-seats` (editor)
+- `GET   /api/admin/guest-manifest?event_id=…` — per-tree + grand totals (any active admin)
 - `GET   /api/admin/dashboard/summary?event_id=…` · `GET /api/admin/dashboard/charts?event_id=…`
 
 ---
@@ -610,6 +646,10 @@ A typical production layout: **Vercel** (frontend) + **Render/Railway/Fly.io**
 - The password policy is intentionally minimal (length + blocklist); there is no
   breach-list check, rotation, or history. Password resets are owner-driven —
   there is no email-based self-service reset (out of scope for this phase).
+- Check-in is **admin-driven** — an admin scans/searches and taps check in; there
+  is no self-serve guest kiosk or hardware scanner integration (the guest QR just
+  deep-links the admin check-in page). Check-in counts seats, not identities, and
+  does not enforce tree capacity at the door.
 - Duplicate protection is one RSVP per **phone number per event**; guests update
   their RSVP by re-submitting with the same phone number.
 - No email/SMS notifications, QR **check-in** (QR **generation** for invite links
