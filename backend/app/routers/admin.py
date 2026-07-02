@@ -16,8 +16,9 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
-from ..deps import get_current_admin, log_action, require_editor
+from ..deps import get_current_admin, log_action, require_editor, require_owner
 from ..models import Admin, Event, InviteTree, Rsvp, new_uuid
+from ..roles import OWNER
 from ..storage import (
     ALLOWED_IMAGE_TYPES,
     StorageError,
@@ -25,7 +26,11 @@ from ..storage import (
     resolve_flyer_url,
 )
 from ..schemas import (
+    AdminCreate,
     AdminOut,
+    AdminPasswordSet,
+    AdminSelfPasswordUpdate,
+    AdminUpdate,
     DashboardCharts,
     DashboardSummary,
     EventAdminOut,
@@ -44,7 +49,7 @@ from ..schemas import (
     TokenResponse,
     TrendPoint,
 )
-from ..security import create_access_token, verify_password
+from ..security import create_access_token, hash_password, verify_password
 from ..seat_logic import computed_status, remaining_seats, used_seats
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -80,6 +85,173 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 @router.get("/me", response_model=AdminOut)
 def me(admin: Admin = Depends(get_current_admin)):
     return AdminOut.model_validate(admin)
+
+
+@router.patch("/me/password", status_code=204)
+def change_my_password(
+    payload: AdminSelfPasswordUpdate,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(get_current_admin),
+):
+    """Any logged-in admin can change their own password."""
+    if not verify_password(payload.current_password, admin.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Your current password is incorrect.",
+        )
+    admin.hashed_password = hash_password(payload.new_password)
+    log_action(db, admin, "admin_password_changed", "admin", admin.id, {})
+    db.commit()
+
+
+# --------------------------------------------------------------------------- #
+# Admin management (owner only)
+# --------------------------------------------------------------------------- #
+def _active_owner_count(db: Session, exclude_id: str | None = None) -> int:
+    stmt = select(func.count(Admin.id)).where(
+        Admin.role == OWNER, Admin.is_active.is_(True)
+    )
+    if exclude_id is not None:
+        stmt = stmt.where(Admin.id != exclude_id)
+    return int(db.execute(stmt).scalar_one())
+
+
+def _ensure_not_last_owner(db: Session, target: Admin) -> None:
+    """Refuse an action that would leave zero active owners."""
+    if _active_owner_count(db, exclude_id=target.id) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="There must be at least one active owner.",
+        )
+
+
+def _get_admin_or_404(db: Session, admin_id: str) -> Admin:
+    target = db.get(Admin, admin_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Admin not found.")
+    return target
+
+
+@router.get("/admins", response_model=list[AdminOut])
+def list_admins(
+    db: Session = Depends(get_db), admin: Admin = Depends(require_owner)
+):
+    admins = db.execute(select(Admin).order_by(Admin.created_at)).scalars().all()
+    return [AdminOut.model_validate(a) for a in admins]
+
+
+@router.post("/admins", response_model=AdminOut, status_code=201)
+def create_admin(
+    payload: AdminCreate,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(require_owner),
+):
+    email = payload.email.lower()
+    if db.execute(select(Admin).where(Admin.email == email)).scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An admin with that email already exists.",
+        )
+    new_admin = Admin(
+        email=email,
+        full_name=payload.full_name.strip(),
+        role=payload.role,
+        hashed_password=hash_password(payload.password),
+        is_active=True,
+    )
+    db.add(new_admin)
+    db.flush()
+    log_action(
+        db, admin, "admin_created", "admin", new_admin.id,
+        {"email": email, "role": payload.role},
+    )
+    db.commit()
+    db.refresh(new_admin)
+    return AdminOut.model_validate(new_admin)
+
+
+@router.patch("/admins/{admin_id}", response_model=AdminOut)
+def update_admin(
+    admin_id: str,
+    payload: AdminUpdate,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(require_owner),
+):
+    target = _get_admin_or_404(db, admin_id)
+    data = payload.model_dump(exclude_unset=True)
+
+    if data.get("full_name") is not None:
+        target.full_name = data["full_name"].strip()
+
+    if data.get("role") is not None and data["role"] != target.role:
+        if target.id == admin.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You cannot change your own role.",
+            )
+        # Demoting the last active owner would lock everyone out of admin mgmt.
+        if target.role == OWNER:
+            _ensure_not_last_owner(db, target)
+        old_role = target.role
+        target.role = data["role"]
+        log_action(
+            db, admin, "admin_role_changed", "admin", target.id,
+            {"from": old_role, "to": target.role},
+        )
+
+    db.commit()
+    db.refresh(target)
+    return AdminOut.model_validate(target)
+
+
+@router.patch("/admins/{admin_id}/password", status_code=204)
+def set_admin_password(
+    admin_id: str,
+    payload: AdminPasswordSet,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(require_owner),
+):
+    target = _get_admin_or_404(db, admin_id)
+    target.hashed_password = hash_password(payload.password)
+    log_action(db, admin, "admin_password_reset", "admin", target.id, {})
+    db.commit()
+
+
+@router.patch("/admins/{admin_id}/deactivate", response_model=AdminOut)
+def deactivate_admin(
+    admin_id: str,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(require_owner),
+):
+    target = _get_admin_or_404(db, admin_id)
+    if target.id == admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot deactivate your own account.",
+        )
+    if target.is_active:
+        if target.role == OWNER:
+            _ensure_not_last_owner(db, target)
+        target.is_active = False
+        log_action(db, admin, "admin_deactivated", "admin", target.id, {})
+        db.commit()
+        db.refresh(target)
+    return AdminOut.model_validate(target)
+
+
+@router.patch("/admins/{admin_id}/reactivate", response_model=AdminOut)
+def reactivate_admin(
+    admin_id: str,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(require_owner),
+):
+    target = _get_admin_or_404(db, admin_id)
+    if not target.is_active:
+        target.is_active = True
+        log_action(db, admin, "admin_reactivated", "admin", target.id, {})
+        db.commit()
+        db.refresh(target)
+    return AdminOut.model_validate(target)
 
 
 # --------------------------------------------------------------------------- #

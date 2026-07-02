@@ -5,6 +5,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from .roles import ROLES
+
 
 # --------------------------------------------------------------------------- #
 # Auth
@@ -30,6 +32,46 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     admin: AdminOut
+
+
+# --------------------------------------------------------------------------- #
+# Admin management (owner only)
+# --------------------------------------------------------------------------- #
+class AdminCreate(BaseModel):
+    email: EmailStr
+    full_name: str = Field("", max_length=200)
+    role: str = Field(...)
+    password: str = Field(..., min_length=8, max_length=200)
+
+    @field_validator("role")
+    @classmethod
+    def _valid_role(cls, v: str) -> str:
+        if v not in ROLES:
+            raise ValueError(f"role must be one of {ROLES}")
+        return v
+
+
+class AdminUpdate(BaseModel):
+    full_name: str | None = Field(None, max_length=200)
+    role: str | None = None
+
+    @field_validator("role")
+    @classmethod
+    def _valid_role(cls, v):
+        if v is not None and v not in ROLES:
+            raise ValueError(f"role must be one of {ROLES}")
+        return v
+
+
+class AdminPasswordSet(BaseModel):
+    """Owner sets/resets another admin's password."""
+    password: str = Field(..., min_length=8, max_length=200)
+
+
+class AdminSelfPasswordUpdate(BaseModel):
+    """A logged-in admin changes their own password."""
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8, max_length=200)
 
 
 # --------------------------------------------------------------------------- #
