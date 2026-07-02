@@ -12,9 +12,10 @@ import {
   TreePine,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
-import type { InviteTree } from "@/lib/types";
+import type { EventAdmin, InviteTree } from "@/lib/types";
 import { useEvents } from "@/components/admin/event-context";
 import { EmptyEventState } from "@/components/admin/EmptyEventState";
+import { InviteTreeShare } from "@/components/admin/InviteTreeShare";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -100,7 +101,12 @@ export default function InviteTreesPage() {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {trees.map((tree) => (
-            <TreeCard key={tree.id} tree={tree} onChanged={load} />
+            <TreeCard
+              key={tree.id}
+              tree={tree}
+              event={selectedEvent}
+              onChanged={load}
+            />
           ))}
         </div>
       )}
@@ -194,7 +200,15 @@ function CreateTreeCard({
   );
 }
 
-function TreeCard({ tree, onChanged }: { tree: InviteTree; onChanged: () => void }) {
+function TreeCard({
+  tree,
+  event,
+  onChanged,
+}: {
+  tree: InviteTree;
+  event: EventAdmin | null;
+  onChanged: () => void;
+}) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(tree.name);
   const [seats, setSeats] = useState(tree.allocated_seats);
@@ -268,6 +282,13 @@ function TreeCard({ tree, onChanged }: { tree: InviteTree; onChanged: () => void
             )}
           </Button>
         </div>
+
+        {/* WhatsApp share + QR code */}
+        <InviteTreeShare
+          inviteUrl={tree.invite_url}
+          event={event}
+          treeName={tree.name}
+        />
 
         {editing ? (
           <div className="space-y-3 rounded-lg border bg-muted/40 p-3">
