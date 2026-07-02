@@ -20,6 +20,8 @@ a single event.
 
 - [Architecture & stack](#architecture--stack)
 - [Core concepts](#core-concepts)
+- [Invite presentation & sharing](#invite-presentation--sharing)
+- [Flyer uploads & storage](#flyer-uploads--storage)
 - [Project structure](#project-structure)
 - [Running locally](#running-locally)
   - [Option A — Docker Compose (recommended)](#option-a--docker-compose-recommended)
@@ -60,10 +62,12 @@ frontend only mirrors it for UX.
 ## Core concepts
 
 ### Events (first-class, multi-event)
-Each event owns its invitation content (title, copy, flyer, venue, date/time,
-dress code, gifts, RSVP deadline) and a lifecycle `status` (`draft`, `active`,
-`closed`, `archived`). Public RSVPs are only accepted while an event is
-`active` and before its `rsvp_deadline`.
+Each event owns its invitation content (title, invite headline/message, copy,
+flyer, venue, date/time, dress code, gifts, RSVP deadline, theme) and a
+lifecycle `status` (`draft`, `active`, `closed`, `archived`). Public RSVPs are
+only accepted while an event is `active` and — when `auto_close_rsvp` is on —
+before its `rsvp_deadline`. When `auto_close_rsvp` is off, the deadline is shown
+to guests but RSVPs stay open (admins can always edit RSVPs directly).
 
 ### Invite trees (seat buckets)
 An **invite tree** is a bucket of seats controlled by an admin, e.g. _Family:
@@ -86,6 +90,53 @@ re-validates seat availability.
 
 ---
 
+## Invite presentation & sharing
+
+RSVP60 renders each public invite entirely from **event data** — there is no
+birthday-specific hardcoding, so any event type looks right.
+
+- **Branding fields** — `invite_headline` (hero banner line) and `invite_message`
+  (prominent copy, falling back to the description) let admins tailor the wording.
+- **Themes** — a lightweight `theme_preset` (`elegant`, `classic`, `joyful`,
+  `minimal`, `formal`) plus an optional `accent_color` (hex) and
+  `background_preset` (`soft`, `plain`, `festive`) restyle the invite tastefully.
+  `elegant` reproduces the original royal-and-gold look, so existing invites are
+  unchanged.
+- **WhatsApp share** — each invite tree in the admin dashboard can copy a
+  WhatsApp-ready message or open WhatsApp share. The message contains the event
+  name, date, venue and the token-based link — **never the invite tree name**.
+- **QR codes** — each tree can display a QR code for its invite link and download
+  it as **PNG** or **SVG** (handy for printed materials), or copy the link.
+- **Readiness checklist** — the admin **Settings** page shows a pre-share
+  checklist (details, flyer, venue + map, gifts, ≥1 invite tree, RSVP deadline,
+  and a locally-tracked "invite link tested" acknowledgement).
+
+## Flyer uploads & storage
+
+Admins can **upload, preview, replace and remove** an event flyer/image from the
+event edit form (or paste an external `flyer_url` as a fallback). Uploads are
+validated: **JPG, PNG or WebP**, up to **5 MB** by default; anything else is
+rejected with a friendly error. The uploaded image always takes priority over
+`flyer_url`, and the API returns a resolved `flyer_image_url` the frontend
+displays.
+
+Storage is pluggable via `STORAGE_BACKEND`:
+
+- **`local`** (default) — files are written under `UPLOAD_DIR` (default
+  `backend/uploads/`, git-ignored) and served by the API from `/media/<path>`.
+  Zero-config for local dev and Docker.
+- **`supabase`** — files are pushed to a Supabase Storage bucket. Set
+  `STORAGE_BACKEND=supabase`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` and
+  (optionally) `SUPABASE_BUCKET`. Create a **public** bucket in Supabase Storage
+  named to match `SUPABASE_BUCKET` (default `flyers`).
+
+> The local backend stores files on the container's disk. In the dev Docker
+> stack a `backend_uploads` volume keeps them across restarts (wiped by
+> `docker compose down -v`). For production, use the Supabase backend (or another
+> object store) so images survive redeploys and scale across instances.
+
+---
+
 ## Project structure
 
 ```
@@ -94,14 +145,16 @@ RSVP60/
 ├── backend/                  # FastAPI app
 │   ├── Dockerfile
 │   ├── alembic.ini           # Alembic config (DB URL comes from settings)
-│   ├── migrations/           # Alembic env + versions/0001_initial_schema.py
+│   ├── migrations/           # Alembic env + versions/0001_… + 0002_event_branding…
+│   ├── uploads/              # local flyer storage (git-ignored; local backend)
 │   ├── app/
-│   │   ├── main.py           # entrypoint: runtime validation, health, error handler
-│   │   ├── config.py         # env-driven settings (+ APP_ENV, prod guards)
+│   │   ├── main.py           # entrypoint: runtime validation, health, /media mount
+│   │   ├── config.py         # env-driven settings (+ APP_ENV, storage, prod guards)
 │   │   ├── database.py       # SQLAlchemy engine/session
 │   │   ├── models.py         # events, admins, invite_trees, rsvps, audit_logs
 │   │   ├── schemas.py        # Pydantic request/response models
 │   │   ├── security.py       # password hashing + JWT
+│   │   ├── storage.py        # pluggable flyer storage (local / supabase)
 │   │   ├── deps.py           # auth dependency + audit helper
 │   │   ├── seat_logic.py     # all seat/quota/waitlist rules
 │   │   ├── ratelimit.py      # in-memory RSVP rate limiter
@@ -232,6 +285,13 @@ convenience.)
 | `CORS_ORIGINS`                   | `http://localhost:3005,...`   | Comma-separated allowed origins (no wildcards).                    |
 | `RSVP_RATE_LIMIT_MAX`            | `8`                           | Max public RSVP submissions per IP per window.                     |
 | `RSVP_RATE_LIMIT_WINDOW_SECONDS` | `60`                          | Rate-limit window in seconds.                                      |
+| `STORAGE_BACKEND`                | `local`                       | `local` (files under `UPLOAD_DIR`, served from `/media`) or `supabase`. |
+| `UPLOAD_DIR`                     | `uploads`                     | Local flyer directory (local backend), relative to the backend dir. |
+| `MAX_UPLOAD_BYTES`               | `5242880`                     | Max flyer upload size in bytes (5 MB).                              |
+| `MEDIA_BASE_URL`                 | _(empty)_                     | Absolute prefix for media URLs. Empty → app-relative `/media/...`. |
+| `SUPABASE_URL`                   | _(empty)_                     | Supabase project URL (required when `STORAGE_BACKEND=supabase`).    |
+| `SUPABASE_SERVICE_KEY`           | _(empty)_                     | Supabase service role key (required for the supabase backend).     |
+| `SUPABASE_BUCKET`                | `flyers`                      | Supabase Storage bucket name (create it as a **public** bucket).   |
 
 The API port is a uvicorn flag (`--port 8010`), not an env var.
 
@@ -287,7 +347,10 @@ python -m tests.smoke_test          # BASE_URL defaults to http://localhost:8010
 It asserts: event scoping, invite-tree scoping, secure token resolution, no
 tree-name leak on the public endpoint, duplicate-RSVP-by-phone, seat
 release/recalculation on update, accepted-vs-waitlisted seat counting, admin
-promotion seat validation, and per-event CSV export.
+promotion seat validation, and per-event CSV export — plus the Phase 2
+behaviours: event branding updates, flyer upload validation/serving/removal, the
+readiness checklist, invite-token → correct-event scoping, and RSVP deadline
+auto-close.
 
 ---
 
@@ -392,6 +455,8 @@ commands directly.
 **Admin** (require `Authorization: Bearer <token>`)
 - `POST  /api/admin/login` · `GET /api/admin/me`
 - `GET   /api/admin/events` · `POST /api/admin/events` · `GET|PATCH /api/admin/events/{id}`
+- `POST  /api/admin/events/{id}/flyer` (multipart image) · `DELETE …/flyer`
+- `GET   /api/admin/events/{id}/readiness` — pre-share checklist
 - `GET   /api/admin/invite-trees?event_id=…` · `POST` · `PATCH /api/admin/invite-trees/{id}`
 - `GET   /api/admin/rsvps?event_id=…` (filters: `status`, `invite_tree_id`, `search`)
 - `PATCH /api/admin/rsvps/{id}`
@@ -420,6 +485,13 @@ A typical production layout: **Vercel** (frontend) + **Render/Railway/Fly.io**
   origin(s)). The app **refuses to boot** in production with the default secret.
 - Do **not** run `app.seed` against production; create your first event via the
   admin UI. (Provision admin accounts by adapting the seed or a one-off script.)
+
+**Flyer storage (production)**
+- Set `STORAGE_BACKEND=supabase`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, and
+  create a **public** Supabase Storage bucket matching `SUPABASE_BUCKET`
+  (default `flyers`). Uploaded flyers are then served from Supabase and survive
+  redeploys. The `local` backend is fine for a single always-on instance with
+  persistent disk, but ephemeral/multi-instance hosts should use Supabase.
 
 **Frontend (Vercel)**
 - Set `NEXT_PUBLIC_API_URL` to the deployed backend URL.
@@ -452,7 +524,12 @@ A typical production layout: **Vercel** (frontend) + **Render/Railway/Fly.io**
   multi-instance load balancer, use a shared store (e.g. Redis) instead.
 - Duplicate protection is one RSVP per **phone number per event**; guests update
   their RSVP by re-submitting with the same phone number.
-- No email/SMS notifications, flyer uploads (flyer is a URL), QR check-in, or
-  billing/multi-org features (intentionally out of scope for this phase).
+- No email/SMS notifications, QR **check-in** (QR **generation** for invite links
+  is supported), public self-signup, or billing/multi-org features (intentionally
+  out of scope for this phase).
+- Flyer uploads use the **local** storage backend by default; those files live on
+  the container disk (persisted via a Docker volume in dev). Use the **Supabase**
+  storage backend in production so images survive redeploys and scale across
+  instances.
 - The frontend Docker image runs the Next.js **dev** server for local
   convenience; production frontend is expected to deploy to Vercel.

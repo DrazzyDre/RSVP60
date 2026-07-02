@@ -37,6 +37,10 @@ services:
       CORS_ORIGINS: http://localhost:3005,http://127.0.0.1:3005
     ports:
       - "8010:8010"
+    # Persist locally-uploaded flyers across container restarts (local storage
+    # backend). Wiped by `docker compose down -v`.
+    volumes:
+      - backend_uploads:/app/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -52,3 +56,4 @@ services:
 
 volumes:
   pgdata:
+  backend_uploads:
