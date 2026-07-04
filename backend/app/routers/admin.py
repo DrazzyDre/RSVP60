@@ -21,7 +21,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -898,9 +898,28 @@ def check_in_rsvp(
                 "seats this guest reserved."
             ),
         )
-    rsvp.checked_in_at = datetime.utcnow()
-    rsvp.checked_in_by_admin_id = admin.id
-    rsvp.checked_in_seats = seats
+    # Race-safe claim: flip checked_in_at from NULL in a single guarded UPDATE.
+    # The ``checked_in_at IS NULL`` predicate makes the check-and-set atomic at
+    # the database level (portable across SQLite and PostgreSQL), so if two
+    # admins tap "check in" at the same instant only the first UPDATE matches a
+    # row — the second matches zero and gets a friendly 409 instead of silently
+    # overwriting who/when/how-many-seats.
+    result = db.execute(
+        update(Rsvp)
+        .where(Rsvp.id == rsvp.id, Rsvp.checked_in_at.is_(None))
+        .values(
+            checked_in_at=datetime.utcnow(),
+            checked_in_by_admin_id=admin.id,
+            checked_in_seats=seats,
+        )
+    )
+    if result.rowcount == 0:
+        # Another request won the race between our read above and this write.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This guest is already checked in.",
+        )
     log_action(db, admin, "rsvp_checked_in", "rsvp", rsvp.id, {"seats": seats})
     db.commit()
     db.refresh(rsvp)
