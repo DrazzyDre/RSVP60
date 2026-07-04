@@ -56,6 +56,19 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     window.localStorage.setItem(STORAGE_KEY, id);
   }, []);
 
+  // Keep the selection valid: if the currently selected event vanishes from the
+  // list (archived/removed in another tab, or after a refresh), fall back to the
+  // first available event rather than leaving a dangling id that breaks pages.
+  useEffect(() => {
+    if (loading || selectedEventId === null) return;
+    if (!events.some((e) => e.id === selectedEventId)) {
+      const next = events[0]?.id ?? null;
+      setId(next);
+      if (next) window.localStorage.setItem(STORAGE_KEY, next);
+      else window.localStorage.removeItem(STORAGE_KEY);
+    }
+  }, [events, selectedEventId, loading]);
+
   const value = useMemo<EventContextValue>(
     () => ({
       events,

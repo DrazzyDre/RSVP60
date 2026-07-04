@@ -17,6 +17,8 @@ import { useEvents } from "@/components/admin/event-context";
 import { useCanEdit } from "@/components/admin/auth-context";
 import { EmptyEventState } from "@/components/admin/EmptyEventState";
 import { InviteTreeShare } from "@/components/admin/InviteTreeShare";
+import { useToast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/confirm";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -96,10 +98,22 @@ export default function InviteTreesPage() {
         </div>
       ) : trees.length === 0 ? (
         <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            <TreePine className="mx-auto mb-3 h-8 w-8 opacity-50" />
-            No invite trees yet for this event. Create one to generate a secure
-            invite link.
+          <CardContent className="flex flex-col items-center py-14 text-center">
+            <TreePine className="mb-3 h-8 w-8 text-muted-foreground/50" />
+            <p className="font-medium text-foreground">
+              Create your first invite tree
+            </p>
+            <p className="mt-1 max-w-md text-sm text-muted-foreground">
+              An invite tree is a named group (e.g. “Family” or “Work Friends”)
+              with its own seat allocation and a private invite link. Guests RSVP
+              through the link, and seats are drawn from that group’s allocation —
+              once it’s full, further guests are waitlisted.
+            </p>
+            {canEdit && !showCreate && (
+              <Button className="mt-5" onClick={() => setShowCreate(true)}>
+                <Plus className="h-4 w-4" /> New invite tree
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -127,6 +141,7 @@ function CreateTreeCard({
   onCreated: () => void;
   onCancel: () => void;
 }) {
+  const toast = useToast();
   const [name, setName] = useState("");
   const [seats, setSeats] = useState(20);
   const [extra, setExtra] = useState(0);
@@ -135,6 +150,7 @@ function CreateTreeCard({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (saving) return;
     setError(null);
     setSaving(true);
     try {
@@ -143,6 +159,7 @@ function CreateTreeCard({
         { event_id: eventId, name, allocated_seats: seats, max_extra_guests: extra },
         true
       );
+      toast.success(`Invite tree “${name}” created.`);
       onCreated();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not create tree.");
@@ -213,6 +230,8 @@ function TreeCard({
   event: EventAdmin | null;
   onChanged: () => void;
 }) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(tree.name);
   const [seats, setSeats] = useState(tree.allocated_seats);
@@ -227,23 +246,39 @@ function TreeCard({
       ? Math.min(Math.round((tree.used_seats / tree.allocated_seats) * 100), 100)
       : 0;
 
-  async function patch(body: Record<string, unknown>) {
+  async function patch(body: Record<string, unknown>, successMessage?: string) {
     setBusy(true);
     setError(null);
     try {
       await api.patch(`/api/admin/invite-trees/${tree.id}`, body);
       setEditing(false);
       onChanged();
+      if (successMessage) toast.success(successMessage);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Update failed.");
+      const msg = err instanceof ApiError ? err.message : "Update failed.";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setBusy(false);
     }
   }
 
+  async function pauseTree() {
+    const ok = await confirm({
+      title: `Pause “${tree.name}”?`,
+      description:
+        "Guests with this invite link will not be able to RSVP until you reactivate it. Existing RSVPs are kept.",
+      confirmLabel: "Pause invites",
+      cancelLabel: "Cancel",
+      destructive: true,
+    });
+    if (ok) patch({ status: "paused" }, "Invite tree paused.");
+  }
+
   function copyLink() {
     navigator.clipboard.writeText(tree.invite_url).then(() => {
       setCopied(true);
+      toast.success("Invite link copied.");
       setTimeout(() => setCopied(false), 1500);
     });
   }
@@ -328,11 +363,14 @@ function TreeCard({
                 size="sm"
                 disabled={busy}
                 onClick={() =>
-                  patch({
-                    name,
-                    allocated_seats: seats,
-                    max_extra_guests: extra,
-                  })
+                  patch(
+                    {
+                      name,
+                      allocated_seats: seats,
+                      max_extra_guests: extra,
+                    },
+                    "Invite tree updated."
+                  )
                 }
               >
                 {busy && <Loader2 className="h-4 w-4 animate-spin" />} Save
@@ -352,7 +390,7 @@ function TreeCard({
                 size="sm"
                 variant="secondary"
                 disabled={busy}
-                onClick={() => patch({ status: "active" })}
+                onClick={() => patch({ status: "active" }, "Invite tree reactivated.")}
               >
                 <Play className="h-4 w-4" /> Reactivate
               </Button>
@@ -361,7 +399,7 @@ function TreeCard({
                 size="sm"
                 variant="ghost"
                 disabled={busy}
-                onClick={() => patch({ status: "paused" })}
+                onClick={pauseTree}
               >
                 <Pause className="h-4 w-4" /> Pause
               </Button>

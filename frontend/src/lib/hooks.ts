@@ -26,3 +26,23 @@ export function useOnline(): boolean {
 
   return online;
 }
+
+/**
+ * Warn the user before leaving the page (tab close / reload / navigation) while
+ * a form has unsaved changes. Deliberately minimal: it wires the browser's
+ * native `beforeunload` guard when `dirty` is true and removes it otherwise, so
+ * a successful save (which flips `dirty` back to false) never warns. In-app
+ * navigation is handled by the caller (e.g. confirming on Cancel).
+ */
+export function useUnsavedChanges(dirty: boolean): void {
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      // Required by some browsers to trigger the native confirm prompt.
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
+}

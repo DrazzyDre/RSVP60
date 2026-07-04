@@ -3,11 +3,24 @@
 import * as React from "react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CalendarRange, Check, KeyRound, Loader2, Mail, Shield, User } from "lucide-react";
+import {
+  CalendarRange,
+  Check,
+  Image as ImageIcon,
+  KeyRound,
+  ListTree,
+  Loader2,
+  Mail,
+  Pencil,
+  Shield,
+  User,
+} from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import type { Admin } from "@/lib/types";
 import { useEvents } from "@/components/admin/event-context";
+import { useCanEdit } from "@/components/admin/auth-context";
 import { EventReadiness } from "@/components/admin/EventReadiness";
+import { PreviewInviteButton } from "@/components/admin/PreviewInviteButton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,6 +29,7 @@ import { eventTypeLabel } from "@/lib/utils";
 
 export default function SettingsPage() {
   const { selectedEvent } = useEvents();
+  const canEdit = useCanEdit();
   const [admin, setAdmin] = useState<Admin | null>(null);
 
   useEffect(() => {
@@ -82,6 +96,35 @@ export default function SettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      {selectedEvent && canEdit && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Recommended next steps</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Finish setting up {selectedEvent.name} before you share invites.
+            </p>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            <Link href="/admin/events">
+              <Button variant="outline" size="sm">
+                <Pencil className="h-4 w-4" /> Complete event details
+              </Button>
+            </Link>
+            <Link href="/admin/events">
+              <Button variant="outline" size="sm">
+                <ImageIcon className="h-4 w-4" /> Upload flyer
+              </Button>
+            </Link>
+            <Link href="/admin/invite-trees">
+              <Button variant="outline" size="sm">
+                <ListTree className="h-4 w-4" /> Create invite tree
+              </Button>
+            </Link>
+            <PreviewInviteButton eventId={selectedEvent.id} label="Preview public invite" />
+          </CardContent>
+        </Card>
+      )}
 
       {selectedEvent && (
         <Card>

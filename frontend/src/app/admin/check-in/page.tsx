@@ -23,6 +23,8 @@ import { useEvents } from "@/components/admin/event-context";
 import { useCanEdit } from "@/components/admin/auth-context";
 import { EmptyEventState } from "@/components/admin/EmptyEventState";
 import { QrScannerDialog } from "@/components/admin/QrScannerDialog";
+import { useToast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/confirm";
 import { useOnline } from "@/lib/hooks";
 import { slugify } from "@/lib/share";
 import { cn, formatDateTimeShort } from "@/lib/utils";
@@ -295,6 +297,8 @@ function CheckInCard({
   online: boolean;
   onChanged: () => void;
 }) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [seats, setSeats] = useState<number>(
@@ -306,16 +310,35 @@ function CheckInCard({
   const isCheckedIn = Boolean(rsvp.checked_in_at);
   const seatOptions = Array.from({ length: rsvp.seats_requested }, (_, i) => i + 1);
 
-  async function run(fn: () => Promise<unknown>) {
+  async function run(fn: () => Promise<unknown>, successMessage?: string) {
     setBusy(true);
     setError(null);
     try {
       await fn();
       onChanged();
+      if (successMessage) toast.success(successMessage);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Action failed.");
+      const msg = err instanceof ApiError ? err.message : "Action failed.";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function undoCheckIn() {
+    const ok = await confirm({
+      title: "Undo this check-in?",
+      description: `${rsvp.full_name} will be marked as not checked in and can be checked in again.`,
+      confirmLabel: "Undo check-in",
+      cancelLabel: "Keep checked in",
+      destructive: true,
+    });
+    if (ok) {
+      run(
+        () => api.post(`/api/admin/rsvps/${rsvp.id}/undo-check-in`, {}),
+        "Check-in undone."
+      );
     }
   }
 
@@ -394,8 +417,10 @@ function CheckInCard({
                 disabled={busy || !online}
                 title={online ? undefined : "Unavailable while offline"}
                 onClick={() =>
-                  run(() =>
-                    api.post(`/api/admin/rsvps/${rsvp.id}/check-in`, { seats })
+                  run(
+                    () =>
+                      api.post(`/api/admin/rsvps/${rsvp.id}/check-in`, { seats }),
+                    `${rsvp.full_name} checked in.`
                   )
                 }
               >
@@ -438,9 +463,7 @@ function CheckInCard({
                 className="h-11"
                 disabled={busy || !online}
                 title={online ? undefined : "Unavailable while offline"}
-                onClick={() =>
-                  run(() => api.post(`/api/admin/rsvps/${rsvp.id}/undo-check-in`, {}))
-                }
+                onClick={undoCheckIn}
               >
                 <Undo2 className="h-4 w-4" /> Undo
               </Button>

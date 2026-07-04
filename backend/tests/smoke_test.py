@@ -61,6 +61,11 @@ Phase 5.5 additions (production readiness):
   * admin/public payloads never expose storage/email/server secrets
   * invite_url is absolute and carries its token (built from SITE_URL)
 
+Phase 5.6 additions (event creation):
+  * owner/admin can create an event; viewer/anon cannot (403/401)
+  * creation validates the required name; new events default to "draft"
+  * a new event is empty and event-scoped and does not disturb other events
+
 Requires the owner/admin/viewer accounts created by app.seed.
 Uses only the Python standard library (no extra deps).
 """
@@ -786,6 +791,61 @@ def main() -> int:
         fam55["invite_url"].startswith("http") and fam55["token"] in fam55["invite_url"],
         fam55.get("invite_url"),
     )
+
+    # --- Phase 5.6: event creation (permissions + validation + scoping) ---
+    # Snapshot an existing event first, to prove new events don't disturb others.
+    _, preB = jget(f"/api/admin/dashboard/summary?event_id={B}", token)
+
+    # Missing the required name -> validation error.
+    s, _ = post("/api/admin/events", {"event_type": "birthday"}, token)
+    check("event creation requires a name (422)", s == 422, str(s))
+
+    # Owner and admin (editors) can create; viewer / anon cannot.
+    s, rawc = post("/api/admin/events", {"name": "Smoke Create (owner)"}, otok)
+    check("owner can create event (201)", s == 201, f"{s} {rawc[:100]}")
+    created = json.loads(rawc) if s == 201 else {}
+    new_id = created.get("id")
+    check(
+        "new event defaults to draft status",
+        created.get("status") == "draft",
+        str(created.get("status")),
+    )
+    check(
+        "create returns the expected event",
+        created.get("name") == "Smoke Create (owner)" and bool(new_id),
+    )
+    check(
+        "new event starts empty (trees/rsvps/confirmed = 0)",
+        created.get("tree_count") == 0
+        and created.get("rsvp_count") == 0
+        and created.get("confirmed_seats") == 0,
+    )
+
+    s, raw_admin = post("/api/admin/events", {"name": "Smoke Create (admin)"}, token)
+    check("admin can create event (201)", s == 201, f"{s} {raw_admin[:100]}")
+
+    s, _ = post("/api/admin/events", {"name": "Nope (viewer)"}, vtok)
+    check("viewer cannot create event (403)", s == 403, str(s))
+    s, _ = post("/api/admin/events", {"name": "Nope (anon)"}, None)
+    check("anon cannot create event (401)", s == 401, str(s))
+
+    if new_id:
+        _, allev = jget("/api/admin/events", token)
+        check(
+            "created event appears in the events list",
+            any(e["id"] == new_id for e in allev),
+        )
+        _, newsum = jget(f"/api/admin/dashboard/summary?event_id={new_id}", token)
+        check(
+            "new event summary is empty + scoped",
+            newsum["total_allocated_seats"] == 0 and newsum["total_rsvps"] == 0,
+        )
+        _, postB = jget(f"/api/admin/dashboard/summary?event_id={B}", token)
+        check(
+            "creating an event does not affect another event's totals",
+            postB["total_allocated_seats"] == preB["total_allocated_seats"]
+            and postB["total_rsvps"] == preB["total_rsvps"],
+        )
 
     # --- Phase 3.5: login rate limiting (run last) -----------------------
     brute = {"email": "bruteforce@rsvp60.com", "password": "wrongwrong"}

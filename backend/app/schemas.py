@@ -247,7 +247,9 @@ class EventBase(BaseModel):
     theme_preset: str = Field("elegant")
     accent_color: str = Field("", max_length=20)
     background_preset: str = Field("")
-    status: str = Field("active")
+    # New events default to "draft" so hosts can finish setup before going live.
+    # A non-active event does not accept public RSVPs (see routers/public.py).
+    status: str = Field("draft")
     # Host / admin email alerts.
     host_notification_email: str = Field("", max_length=255)
     notify_tree_exhausted: bool = True
@@ -392,6 +394,7 @@ class EventAdminOut(BaseModel):
     notify_waitlisted_rsvp: bool = False
     tree_count: int = 0
     rsvp_count: int = 0
+    confirmed_seats: int = 0
     created_at: datetime
     updated_at: datetime
 

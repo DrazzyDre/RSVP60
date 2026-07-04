@@ -14,6 +14,8 @@ import {
 import { api, ApiError } from "@/lib/api";
 import type { Admin, AdminRole } from "@/lib/types";
 import { useAuth, useIsOwner } from "@/components/admin/auth-context";
+import { useToast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/confirm";
 import { formatDateTimeShort } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -128,6 +130,7 @@ function CreateAdminCard({
   onCreated: () => void;
   onCancel: () => void;
 }) {
+  const toast = useToast();
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [role, setRole] = useState<AdminRole>("viewer");
@@ -137,6 +140,7 @@ function CreateAdminCard({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (saving) return;
     setError(null);
     setSaving(true);
     try {
@@ -145,6 +149,7 @@ function CreateAdminCard({
         { email, full_name: fullName, role, password },
         true
       );
+      toast.success("Admin account created.");
       onCreated();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not create admin.");
@@ -230,22 +235,44 @@ function AdminCard({
   isSelf: boolean;
   onChanged: () => void;
 }) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPw, setShowPw] = useState(false);
   const [pw, setPw] = useState("");
   const [pwDone, setPwDone] = useState(false);
 
-  async function run(fn: () => Promise<unknown>) {
+  async function run(fn: () => Promise<unknown>, successMessage?: string) {
     setBusy(true);
     setError(null);
     try {
       await fn();
       onChanged();
+      if (successMessage) toast.success(successMessage);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Action failed.");
+      const msg = err instanceof ApiError ? err.message : "Action failed.";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function deactivate() {
+    const ok = await confirm({
+      title: `Deactivate ${admin.full_name || admin.email}?`,
+      description:
+        "They will be signed out and cannot log in until an owner reactivates the account.",
+      confirmLabel: "Deactivate",
+      cancelLabel: "Cancel",
+      destructive: true,
+    });
+    if (ok) {
+      run(
+        () => api.patch(`/api/admin/admins/${admin.id}/deactivate`, {}),
+        "Admin deactivated."
+      );
     }
   }
 
@@ -258,9 +285,12 @@ function AdminCard({
       setPw("");
       setShowPw(false);
       setPwDone(true);
+      toast.success("Password set.");
       setTimeout(() => setPwDone(false), 2000);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not set password.");
+      const msg = err instanceof ApiError ? err.message : "Could not set password.";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setBusy(false);
     }
@@ -301,10 +331,12 @@ function AdminCard({
               value={admin.role}
               disabled={busy || isSelf}
               onChange={(e) =>
-                run(() =>
-                  api.patch(`/api/admin/admins/${admin.id}`, {
-                    role: e.target.value,
-                  })
+                run(
+                  () =>
+                    api.patch(`/api/admin/admins/${admin.id}`, {
+                      role: e.target.value,
+                    }),
+                  "Role updated."
                 )
               }
               className="w-36"
@@ -322,11 +354,7 @@ function AdminCard({
               size="sm"
               variant="ghost"
               disabled={busy || isSelf}
-              onClick={() =>
-                run(() =>
-                  api.patch(`/api/admin/admins/${admin.id}/deactivate`, {})
-                )
-              }
+              onClick={deactivate}
             >
               <UserX className="h-4 w-4" /> Deactivate
             </Button>
@@ -336,8 +364,9 @@ function AdminCard({
               variant="secondary"
               disabled={busy}
               onClick={() =>
-                run(() =>
-                  api.patch(`/api/admin/admins/${admin.id}/reactivate`, {})
+                run(
+                  () => api.patch(`/api/admin/admins/${admin.id}/reactivate`, {}),
+                  "Admin reactivated."
                 )
               }
             >

@@ -1,12 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Download, Loader2, Mail, MailCheck, Search } from "lucide-react";
+import Link from "next/link";
+import {
+  Check,
+  Download,
+  Loader2,
+  Mail,
+  MailCheck,
+  Search,
+  Send,
+  Users,
+} from "lucide-react";
 import { API_URL, api, ApiError, getToken } from "@/lib/api";
 import type { InviteTree, NotifyResult, RsvpAdmin, RsvpStatus } from "@/lib/types";
 import { useEvents } from "@/components/admin/event-context";
 import { useCanEdit } from "@/components/admin/auth-context";
 import { EmptyEventState } from "@/components/admin/EmptyEventState";
+import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,6 +31,7 @@ const STATUSES: RsvpStatus[] = ["accepted", "declined", "waitlisted", "cancelled
 export default function RsvpsPage() {
   const { selectedEventId, selectedEvent, loading: eventsLoading } = useEvents();
   const canEdit = useCanEdit();
+  const toast = useToast();
   const [rsvps, setRsvps] = useState<RsvpAdmin[]>([]);
   const [trees, setTrees] = useState<InviteTree[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,9 +90,14 @@ export default function RsvpsPage() {
         `/api/admin/rsvps/${id}?notify=${notifyOnChange}`,
         { rsvp_status: status }
       );
+      toast.success(
+        notifyOnChange
+          ? "RSVP status updated — guest notified by email."
+          : "RSVP status updated."
+      );
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Update failed.");
+      toast.error(err instanceof ApiError ? err.message : "Update failed.");
     }
   }
 
@@ -92,9 +109,10 @@ export default function RsvpsPage() {
         {},
         true
       );
-      alert(res.detail);
+      if (res.status === "sent") toast.success(res.detail);
+      else toast.info(res.detail);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not resend.");
+      toast.error(err instanceof ApiError ? err.message : "Could not resend.");
     } finally {
       setResendingId(null);
     }
@@ -114,8 +132,9 @@ export default function RsvpsPage() {
       a.download = `rsvp60-${selectedEvent?.name ?? "guests"}.csv`;
       a.click();
       URL.revokeObjectURL(url);
+      toast.success("Guest CSV downloaded.");
     } catch {
-      alert("Could not export CSV.");
+      toast.error("Could not export CSV.");
     } finally {
       setExporting(false);
     }
@@ -198,11 +217,29 @@ export default function RsvpsPage() {
       {loading || eventsLoading ? (
         <Skeleton className="h-96 w-full rounded-xl" />
       ) : rsvps.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            No RSVPs match your filters yet.
-          </CardContent>
-        </Card>
+        statusFilter || treeFilter || search.trim() ? (
+          <Card>
+            <CardContent className="py-12 text-center text-muted-foreground">
+              No RSVPs match your filters. Try clearing the search or status filter.
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardContent className="flex flex-col items-center py-14 text-center">
+              <Users className="mb-3 h-8 w-8 text-muted-foreground/50" />
+              <p className="font-medium text-foreground">No RSVPs yet</p>
+              <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+                Share an invite link with your guests — their responses will appear
+                here as they RSVP. Invite links live on the Invite Trees page.
+              </p>
+              <Link href="/admin/invite-trees" className="mt-5">
+                <Button variant="outline">
+                  <Send className="h-4 w-4" /> Share an invite link
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+        )
       ) : (
         <>
           {/* Desktop table */}

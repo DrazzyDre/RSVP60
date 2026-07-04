@@ -77,6 +77,7 @@ export interface EventAdmin {
   notify_waitlisted_rsvp: boolean;
   tree_count: number;
   rsvp_count: number;
+  confirmed_seats: number;
   created_at: string;
   updated_at: string;
 }

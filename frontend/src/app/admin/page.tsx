@@ -14,10 +14,15 @@ import {
   UserX,
   Users,
 } from "lucide-react";
+import Link from "next/link";
+import { CalendarPlus } from "lucide-react";
 import { api } from "@/lib/api";
 import type { DashboardCharts, DashboardSummary } from "@/lib/types";
 import { useEvents } from "@/components/admin/event-context";
+import { useCanEdit } from "@/components/admin/auth-context";
 import { EmptyEventState } from "@/components/admin/EmptyEventState";
+import { QuickActions } from "@/components/admin/QuickActions";
+import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/admin/StatCard";
 import {
   CapacityMeter,
@@ -30,6 +35,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function DashboardPage() {
   const { selectedEventId, selectedEvent, loading: eventsLoading } = useEvents();
+  const canEdit = useCanEdit();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [charts, setCharts] = useState<DashboardCharts | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,14 +74,25 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-serif text-2xl font-bold text-royal">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">
-          {selectedEvent
-            ? `Overview for ${selectedEvent.name}`
-            : "Overview of seats, RSVPs and invite trees."}
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="font-serif text-2xl font-bold text-royal">Dashboard</h1>
+          <p className="text-sm text-muted-foreground">
+            {selectedEvent
+              ? `Overview for ${selectedEvent.name}`
+              : "Overview of seats, RSVPs and invite trees."}
+          </p>
+        </div>
+        {canEdit && (
+          <Link href="/admin/events/new">
+            <Button>
+              <CalendarPlus className="h-4 w-4" /> Create event
+            </Button>
+          </Link>
+        )}
       </div>
+
+      <QuickActions />
 
       {/* Overview cards */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

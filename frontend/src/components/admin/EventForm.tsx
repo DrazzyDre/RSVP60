@@ -4,6 +4,9 @@ import * as React from "react";
 import { useRef, useState } from "react";
 import { ImagePlus, Loader2, Trash2, UploadCloud } from "lucide-react";
 import { api, ApiError, resolveMediaUrl } from "@/lib/api";
+import { useUnsavedChanges } from "@/lib/hooks";
+import { useConfirm } from "@/components/ui/confirm";
+import { useToast } from "@/components/ui/toast";
 import type {
   BackgroundPreset,
   EventAdmin,
@@ -110,11 +113,17 @@ function initial(event?: EventAdmin | null): FormState {
     theme_preset: event?.theme_preset ?? "elegant",
     accent_color: event?.accent_color ?? "",
     background_preset: event?.background_preset ?? "",
-    status: event?.status ?? "active",
+    status: initialStatus(event),
     host_notification_email: event?.host_notification_email ?? "",
     notify_tree_exhausted: event?.notify_tree_exhausted ?? true,
     notify_waitlisted_rsvp: event?.notify_waitlisted_rsvp ?? false,
   };
+}
+
+// New events default to "draft" (set up first, then go live); editing keeps the
+// event's real status. A draft event does not accept public RSVPs yet.
+function initialStatus(event?: EventAdmin | null): EventStatus {
+  return event?.status ?? "draft";
 }
 
 export function EventForm({
@@ -126,9 +135,18 @@ export function EventForm({
   onSaved: (e: EventAdmin) => void;
   onCancel: () => void;
 }) {
-  const [form, setForm] = useState<FormState>(initial(event));
+  const confirm = useConfirm();
+  const initialRef = useRef<FormState>(initial(event));
+  const [form, setForm] = useState<FormState>(initialRef.current);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Warn on tab close / reload while there are meaningful unsaved edits (but not
+  // after a successful save, which navigates away intentionally).
+  const dirty =
+    !saved && JSON.stringify(form) !== JSON.stringify(initialRef.current);
+  useUnsavedChanges(dirty);
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -136,6 +154,7 @@ export function EventForm({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (saving) return; // guard against double-submit
     setError(null);
     setSaving(true);
     const payload = {
@@ -144,15 +163,33 @@ export function EventForm({
       rsvp_deadline: fromLocalInput(form.rsvp_deadline),
     };
     try {
-      const saved = event
+      const savedEvent = event
         ? await api.patch<EventAdmin>(`/api/admin/events/${event.id}`, payload)
         : await api.post<EventAdmin>("/api/admin/events", payload, true);
-      onSaved(saved);
+      setSaved(true); // disables the unsaved-changes guard before navigating
+      onSaved(savedEvent);
     } catch (err) {
+      // Entered values are preserved so the user can correct and retry.
       setError(err instanceof ApiError ? err.message : "Could not save event.");
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleCancel() {
+    if (
+      dirty &&
+      !(await confirm({
+        title: "Discard your changes?",
+        description: "This event form has unsaved changes that will be lost.",
+        confirmLabel: "Discard",
+        cancelLabel: "Keep editing",
+        destructive: true,
+      }))
+    ) {
+      return;
+    }
+    onCancel();
   }
 
   return (
@@ -424,17 +461,32 @@ export function EventForm({
       </div>
 
       {error && (
-        <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>
+        <p
+          role="alert"
+          className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
+        >
+          {error}
+        </p>
       )}
 
-      <div className="flex gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Button type="submit" disabled={saving}>
           {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-          {event ? "Save changes" : "Create event"}
+          {saving
+            ? event
+              ? "Saving…"
+              : "Creating…"
+            : event
+              ? "Save changes"
+              : "Create event"}
         </Button>
-        <Button type="button" variant="outline" onClick={onCancel}>
+        <Button type="button" variant="outline" onClick={handleCancel}>
           Cancel
         </Button>
+        <span className="text-xs text-muted-foreground">
+          <span className="text-red-500">*</span> Required. Optional details
+          (flyer, gifts, dress code) can be added later.
+        </span>
       </div>
     </form>
   );
@@ -461,6 +513,8 @@ function Field({
 
 // Upload / preview / replace / remove the event flyer image.
 function FlyerUpload({ event }: { event: EventAdmin }) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [imageUrl, setImageUrl] = useState(event.flyer_image_url);
   const [storagePath, setStoragePath] = useState(event.flyer_storage_path);
   const [busy, setBusy] = useState(false);
@@ -484,8 +538,11 @@ function FlyerUpload({ event }: { event: EventAdmin }) {
       );
       setImageUrl(updated.flyer_image_url);
       setStoragePath(updated.flyer_storage_path);
+      toast.success("Flyer uploaded.");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Upload failed.");
+      const msg = err instanceof ApiError ? err.message : "Upload failed.";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setBusy(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -493,6 +550,14 @@ function FlyerUpload({ event }: { event: EventAdmin }) {
   }
 
   async function onRemove() {
+    const ok = await confirm({
+      title: "Remove this flyer?",
+      description:
+        "The flyer image will be removed from the event and the public invite. You can upload a new one later.",
+      confirmLabel: "Remove flyer",
+      destructive: true,
+    });
+    if (!ok) return;
     setError(null);
     setBusy(true);
     try {
@@ -501,8 +566,11 @@ function FlyerUpload({ event }: { event: EventAdmin }) {
       );
       setImageUrl(updated.flyer_image_url);
       setStoragePath(updated.flyer_storage_path);
+      toast.success("Flyer removed.");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not remove flyer.");
+      const msg = err instanceof ApiError ? err.message : "Could not remove flyer.";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setBusy(false);
     }

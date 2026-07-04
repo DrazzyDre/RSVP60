@@ -19,7 +19,7 @@ export function EventSwitcher() {
         <div className="h-11 w-full animate-pulse rounded-lg bg-muted" />
       ) : events.length === 0 ? (
         <Link
-          href="/admin/events"
+          href="/admin/events/new"
           className="flex h-11 items-center justify-center gap-2 rounded-lg border border-dashed text-sm text-muted-foreground hover:bg-muted"
         >
           <Plus className="h-4 w-4" /> Create your first event
@@ -29,6 +29,7 @@ export function EventSwitcher() {
           value={selectedEventId ?? ""}
           onChange={(e) => setSelectedEventId(e.target.value)}
           className="h-11"
+          aria-label="Select current event"
         >
           {events.map((ev) => (
             <option key={ev.id} value={ev.id}>
@@ -39,12 +40,22 @@ export function EventSwitcher() {
       )}
       <div className="flex items-center justify-between px-0.5">
         <SelectedMeta />
-        <Link
-          href="/admin/events"
-          className="text-xs font-medium text-royal hover:underline"
-        >
-          Manage
-        </Link>
+        <div className="flex items-center gap-3">
+          {events.length > 0 && (
+            <Link
+              href="/admin/events/new"
+              className="flex items-center gap-0.5 text-xs font-medium text-royal hover:underline"
+            >
+              <Plus className="h-3 w-3" /> New
+            </Link>
+          )}
+          <Link
+            href="/admin/events"
+            className="text-xs font-medium text-royal hover:underline"
+          >
+            Manage
+          </Link>
+        </div>
       </div>
     </div>
   );

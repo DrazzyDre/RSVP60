@@ -394,9 +394,18 @@ def _serialize_event(db: Session, event: Event) -> EventAdminOut:
             select(func.count(Rsvp.id)).where(Rsvp.event_id == event.id)
         ).scalar_one()
     )
+    # Confirmed seats = seats held by accepted RSVPs (matches dashboard usage).
+    confirmed_seats = int(
+        db.execute(
+            select(func.coalesce(func.sum(Rsvp.seats_requested), 0)).where(
+                Rsvp.event_id == event.id, Rsvp.rsvp_status == "accepted"
+            )
+        ).scalar_one()
+    )
     out = EventAdminOut.model_validate(event)
     out.tree_count = tree_count
     out.rsvp_count = rsvp_count
+    out.confirmed_seats = confirmed_seats
     out.flyer_image_url = resolve_flyer_url(event.flyer_storage_path, event.flyer_url)
     return out
 
