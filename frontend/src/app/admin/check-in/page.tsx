@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeCanvas, QRCodeSVG } from "qrcode.react";
 import {
   AlertTriangle,
@@ -10,9 +10,11 @@ import {
   Download,
   Loader2,
   QrCode,
+  ScanLine,
   Search,
   Undo2,
   UserCheck,
+  WifiOff,
   X,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
@@ -20,8 +22,10 @@ import type { RsvpAdmin } from "@/lib/types";
 import { useEvents } from "@/components/admin/event-context";
 import { useCanEdit } from "@/components/admin/auth-context";
 import { EmptyEventState } from "@/components/admin/EmptyEventState";
+import { QrScannerDialog } from "@/components/admin/QrScannerDialog";
+import { useOnline } from "@/lib/hooks";
 import { slugify } from "@/lib/share";
-import { formatDateTimeShort } from "@/lib/utils";
+import { cn, formatDateTimeShort } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -29,20 +33,27 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 
+type Filter = "all" | "not_in" | "in" | "issues";
+
 export default function CheckInPage() {
   const { selectedEventId, selectedEvent, loading: eventsLoading } = useEvents();
   const canEdit = useCanEdit();
+  const online = useOnline();
   const [search, setSearch] = useState("");
   const [token, setToken] = useState<string | null>(null);
   const [rsvps, setRsvps] = useState<RsvpAdmin[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [scanOpen, setScanOpen] = useState(false);
 
   // Accept a ?token= deep link (e.g. from a scanned guest QR code).
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get("token");
     if (t) setToken(t);
   }, []);
+
+  const tokenMode = Boolean(token && !search.trim());
 
   const load = useCallback(() => {
     if (!selectedEventId) return;
@@ -65,37 +76,119 @@ export default function CheckInPage() {
     return () => clearTimeout(t);
   }, [load, search]);
 
+  function clearSearch() {
+    setSearch("");
+    setToken(null);
+    setFilter("all");
+  }
+
+  function handleScan(scanned: string) {
+    setScanOpen(false);
+    setSearch("");
+    setFilter("all");
+    setToken(scanned);
+  }
+
+  // Client-side quick filters over the loaded results.
+  const counts = useMemo(() => {
+    let notIn = 0;
+    let inCount = 0;
+    let issues = 0;
+    for (const r of rsvps) {
+      if (r.rsvp_status !== "accepted") issues += 1;
+      else if (r.checked_in_at) inCount += 1;
+      else notIn += 1;
+    }
+    return { all: rsvps.length, not_in: notIn, in: inCount, issues };
+  }, [rsvps]);
+
+  const visible = useMemo(() => {
+    switch (filter) {
+      case "not_in":
+        return rsvps.filter((r) => r.rsvp_status === "accepted" && !r.checked_in_at);
+      case "in":
+        return rsvps.filter((r) => Boolean(r.checked_in_at));
+      case "issues":
+        return rsvps.filter((r) => r.rsvp_status !== "accepted");
+      default:
+        return rsvps;
+    }
+  }, [rsvps, filter]);
+
   if (!eventsLoading && !selectedEventId) return <EmptyEventState />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div>
         <h1 className="font-serif text-2xl font-bold text-royal">Check-in</h1>
         <p className="text-sm text-muted-foreground">
           {selectedEvent
             ? `Event-day check-in for ${selectedEvent.name}`
-            : "Search and check in your guests."}
+            : "Search, scan and check in your guests."}
         </p>
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          value={search}
-          onChange={(e) => {
-            setToken(null); // typing overrides a token deep-link
-            setSearch(e.target.value);
-          }}
-          placeholder="Search by name, phone or email…"
-          className="h-12 pl-10 text-base"
-          autoFocus
-        />
+      {!online && (
+        <div className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+          <WifiOff className="h-4 w-4 flex-shrink-0" />
+          You&apos;re offline. Check-in actions are paused until the connection is
+          back. Any manifest already loaded stays available to view and print.
+        </div>
+      )}
+
+      {/* Search + scan */}
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => {
+              setToken(null); // typing overrides a token deep-link
+              setSearch(e.target.value);
+            }}
+            placeholder="Search by name, phone or email…"
+            className="h-12 pl-10 pr-10 text-base"
+            autoFocus
+          />
+          {(search || token) && (
+            <button
+              type="button"
+              onClick={clearSearch}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        <Button
+          type="button"
+          size="lg"
+          variant="outline"
+          className="h-12 px-4"
+          onClick={() => setScanOpen(true)}
+        >
+          <ScanLine className="h-5 w-5" />
+          <span className="hidden sm:inline">Scan</span>
+        </Button>
       </div>
 
-      {token && !search && (
+      {/* Quick filters */}
+      {rsvps.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <FilterChip label="All" count={counts.all} active={filter === "all"} onClick={() => setFilter("all")} />
+          <FilterChip label="Not checked in" count={counts.not_in} active={filter === "not_in"} onClick={() => setFilter("not_in")} />
+          <FilterChip label="Checked in" count={counts.in} active={filter === "in"} onClick={() => setFilter("in")} tone="green" />
+          {counts.issues > 0 && (
+            <FilterChip label="Issues" count={counts.issues} active={filter === "issues"} onClick={() => setFilter("issues")} tone="amber" />
+          )}
+        </div>
+      )}
+
+      {tokenMode && (
         <p className="text-sm text-muted-foreground">
           Showing the guest from the scanned code.{" "}
-          <button className="underline" onClick={() => setToken(null)}>
+          <button className="font-medium text-royal underline" onClick={clearSearch}>
             Show full roster
           </button>
         </p>
@@ -114,29 +207,92 @@ export default function CheckInPage() {
       ) : rsvps.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
-            {search
-              ? "No guests match your search."
-              : "No accepted guests yet for this event."}
+            {tokenMode
+              ? "No guest matches that scanned code. Try scanning again, or search by name."
+              : search
+                ? "No guests match your search."
+                : "No accepted guests yet for this event."}
+          </CardContent>
+        </Card>
+      ) : visible.length === 0 ? (
+        <Card>
+          <CardContent className="py-10 text-center text-muted-foreground">
+            No guests in this view. Try a different filter.
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
-          {rsvps.map((r) => (
-            <CheckInCard key={r.id} rsvp={r} canEdit={canEdit} onChanged={load} />
+          {visible.map((r) => (
+            <CheckInCard
+              key={r.id}
+              rsvp={r}
+              canEdit={canEdit}
+              online={online}
+              onChanged={load}
+            />
           ))}
         </div>
       )}
+
+      {scanOpen && (
+        <QrScannerDialog onDetected={handleScan} onClose={() => setScanOpen(false)} />
+      )}
     </div>
+  );
+}
+
+function FilterChip({
+  label,
+  count,
+  active,
+  onClick,
+  tone = "royal",
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+  tone?: "royal" | "green" | "amber";
+}) {
+  const activeTone =
+    tone === "green"
+      ? "border-green-600 bg-green-600 text-white"
+      : tone === "amber"
+        ? "border-amber-500 bg-amber-500 text-white"
+        : "border-royal bg-royal text-white";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-colors",
+        active
+          ? activeTone
+          : "border-input bg-white text-muted-foreground hover:bg-muted"
+      )}
+    >
+      {label}
+      <span
+        className={cn(
+          "rounded-full px-1.5 text-xs",
+          active ? "bg-white/25" : "bg-muted"
+        )}
+      >
+        {count}
+      </span>
+    </button>
   );
 }
 
 function CheckInCard({
   rsvp,
   canEdit,
+  online,
   onChanged,
 }: {
   rsvp: RsvpAdmin;
   canEdit: boolean;
+  online: boolean;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -164,15 +320,21 @@ function CheckInCard({
   }
 
   return (
-    <Card className={isCheckedIn ? "border-green-300 bg-green-50/40" : ""}>
+    <Card
+      className={cn(
+        isCheckedIn && "border-green-400 bg-green-50/50",
+        !isAccepted && "border-amber-300 bg-amber-50/40"
+      )}
+    >
       <CardContent className="flex flex-wrap items-start justify-between gap-3 p-5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-lg font-semibold text-foreground">{rsvp.full_name}</p>
             <Badge status={rsvp.rsvp_status} />
             {isCheckedIn && (
-              <Badge status="active">
-                checked in{rsvp.checked_in_seats ? ` · ${rsvp.checked_in_seats}` : ""}
+              <Badge className="bg-green-600 text-white">
+                <Check className="mr-1 h-3 w-3" /> Checked in
+                {rsvp.checked_in_seats ? ` · ${rsvp.checked_in_seats}` : ""}
               </Badge>
             )}
           </div>
@@ -182,16 +344,17 @@ function CheckInCard({
             {rsvp.seats_requested} seat{rsvp.seats_requested === 1 ? "" : "s"}
           </p>
           {isCheckedIn && (
-            <p className="mt-1 text-xs text-green-700">
+            <p className="mt-1.5 flex items-center gap-1.5 rounded-md bg-green-100 px-2 py-1 text-xs font-medium text-green-800">
+              <Check className="h-3.5 w-3.5" />
               Checked in {formatDateTimeShort(rsvp.checked_in_at)}
               {rsvp.checked_in_by ? ` by ${rsvp.checked_in_by}` : ""}
             </p>
           )}
           {!isAccepted && (
-            <p className="mt-2 flex items-center gap-1.5 text-sm text-amber-700">
-              <AlertTriangle className="h-4 w-4" />
-              Not eligible — this RSVP is {rsvp.rsvp_status}. Change its status to
-              accepted first.
+            <p className="mt-2 flex items-start gap-1.5 text-sm font-medium text-amber-800">
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+              Not eligible to check in — this RSVP is {rsvp.rsvp_status}. Change its
+              status to accepted on the RSVPs page first.
             </p>
           )}
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
@@ -203,6 +366,7 @@ function CheckInCard({
             variant="ghost"
             onClick={() => setShowQr(true)}
             title="Guest QR code"
+            aria-label="Guest QR code"
           >
             <QrCode className="h-4 w-4" />
           </Button>
@@ -213,8 +377,9 @@ function CheckInCard({
                 <Select
                   value={seats}
                   onChange={(e) => setSeats(Number(e.target.value))}
-                  className="h-9 w-20 text-sm"
+                  className="h-12 w-24 text-sm"
                   title="Seats present"
+                  disabled={!online}
                 >
                   {seatOptions.map((n) => (
                     <option key={n} value={n}>
@@ -224,8 +389,10 @@ function CheckInCard({
                 </Select>
               )}
               <Button
-                size="sm"
-                disabled={busy}
+                size="lg"
+                className="h-12"
+                disabled={busy || !online}
+                title={online ? undefined : "Unavailable while offline"}
                 onClick={() =>
                   run(() =>
                     api.post(`/api/admin/rsvps/${rsvp.id}/check-in`, { seats })
@@ -233,9 +400,9 @@ function CheckInCard({
                 }
               >
                 {busy ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-5 w-5 animate-spin" />
                 ) : (
-                  <UserCheck className="h-4 w-4" />
+                  <UserCheck className="h-5 w-5" />
                 )}
                 Check in
               </Button>
@@ -255,9 +422,9 @@ function CheckInCard({
                     })
                   );
                 }}
-                className="h-9 w-20 text-sm"
+                className="h-11 w-24 text-sm"
                 title="Adjust seats present"
-                disabled={busy}
+                disabled={busy || !online}
               >
                 {seatOptions.map((n) => (
                   <option key={n} value={n}>
@@ -268,7 +435,9 @@ function CheckInCard({
               <Button
                 size="sm"
                 variant="outline"
-                disabled={busy}
+                className="h-11"
+                disabled={busy || !online}
+                title={online ? undefined : "Unavailable while offline"}
                 onClick={() =>
                   run(() => api.post(`/api/admin/rsvps/${rsvp.id}/undo-check-in`, {}))
                 }
@@ -280,9 +449,7 @@ function CheckInCard({
         </div>
       </CardContent>
 
-      {showQr && (
-        <GuestQrDialog rsvp={rsvp} onClose={() => setShowQr(false)} />
-      )}
+      {showQr && <GuestQrDialog rsvp={rsvp} onClose={() => setShowQr(false)} />}
     </Card>
   );
 }

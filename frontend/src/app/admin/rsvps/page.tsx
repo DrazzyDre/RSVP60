@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, Loader2, Search } from "lucide-react";
+import { Check, Download, Loader2, Search } from "lucide-react";
 import { API_URL, api, ApiError, getToken } from "@/lib/api";
 import type { InviteTree, RsvpAdmin, RsvpStatus } from "@/lib/types";
 import { useEvents } from "@/components/admin/event-context";
@@ -178,6 +178,7 @@ export default function RsvpsPage() {
                     <th className="px-4 py-3 font-medium">Seats</th>
                     <th className="px-4 py-3 font-medium">Submitted</th>
                     <th className="px-4 py-3 font-medium">Status</th>
+                    <th className="px-4 py-3 font-medium">Check-in</th>
                     {canEdit && <th className="px-4 py-3 font-medium">Change</th>}
                   </tr>
                 </thead>
@@ -200,6 +201,9 @@ export default function RsvpsPage() {
                       </td>
                       <td className="px-4 py-3">
                         <Badge status={r.rsvp_status} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <CheckInStatus rsvp={r} />
                       </td>
                       {canEdit && (
                         <td className="px-4 py-3">
@@ -242,6 +246,13 @@ export default function RsvpsPage() {
                     <span>{r.seats_requested} seats</span>
                     <span>{formatDateTimeShort(r.created_at)}</span>
                   </div>
+                  {r.checked_in_at && (
+                    <p className="flex items-center gap-1 text-xs font-medium text-green-700">
+                      <Check className="h-3 w-3" /> Checked in
+                      {r.checked_in_seats ? ` · ${r.checked_in_seats} seats` : ""} ·{" "}
+                      {formatDateTimeShort(r.checked_in_at)}
+                    </p>
+                  )}
                   {canEdit && (
                     <Select
                       value={r.rsvp_status}
@@ -268,5 +279,22 @@ export default function RsvpsPage() {
         </>
       )}
     </div>
+  );
+}
+
+function CheckInStatus({ rsvp }: { rsvp: RsvpAdmin }) {
+  if (!rsvp.checked_in_at) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  return (
+    <span className="flex flex-col">
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700">
+        <Check className="h-3 w-3" /> Checked in
+        {rsvp.checked_in_seats ? ` · ${rsvp.checked_in_seats}` : ""}
+      </span>
+      <span className="text-[11px] text-muted-foreground">
+        {formatDateTimeShort(rsvp.checked_in_at)}
+      </span>
+    </span>
   );
 }
