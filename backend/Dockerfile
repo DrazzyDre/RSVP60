@@ -1,4 +1,4 @@
-# RSVP60 FastAPI backend image
+# GatherArc FastAPI backend image
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \

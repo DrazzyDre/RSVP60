@@ -1,4 +1,4 @@
-"""Validate the current environment against RSVP60's production guards.
+"""Validate the current environment against GatherArc's production guards.
 
 Run this in the TARGET environment (with the real env vars set) before a deploy,
 from the backend/ directory:
@@ -25,7 +25,7 @@ def main() -> int:
         "<DEFAULT — INSECURE>" if s.jwt_secret == UNSAFE_JWT_DEFAULT else "<set>"
     )
 
-    print("RSVP60 configuration check")
+    print("GatherArc configuration check")
     print(f"  APP_ENV                   = {s.app_env}")
     print(f"  DATABASE_URL              = {_mask(s.database_url)} ({db_kind})")
     print(f"  JWT_SECRET                = {jwt_state}")

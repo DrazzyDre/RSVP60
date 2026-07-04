@@ -1,5 +1,5 @@
 -- ===========================================================================
--- RSVP60 database schema (PostgreSQL / Supabase)
+-- GatherArc database schema (PostgreSQL / Supabase)
 -- ---------------------------------------------------------------------------
 -- The FastAPI app also auto-creates these tables via SQLAlchemy on startup,
 -- but this file is the canonical reference migration for a Postgres/Supabase

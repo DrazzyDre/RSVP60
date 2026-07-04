@@ -129,7 +129,7 @@ export default function RsvpsPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `rsvp60-${selectedEvent?.name ?? "guests"}.csv`;
+      a.download = `gatherarc-${selectedEvent?.name ?? "guests"}.csv`;
       a.click();
       URL.revokeObjectURL(url);
       toast.success("Guest CSV downloaded.");

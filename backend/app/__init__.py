@@ -1,3 +1,3 @@
-"""RSVP60 FastAPI backend."""
+"""GatherArc FastAPI backend."""
 
 __version__ = "1.0.0"

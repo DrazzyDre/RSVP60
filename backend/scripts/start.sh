@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Production start command for the RSVP60 API.
+# Production start command for the GatherArc API.
 #
 # Run from the backend/ directory (Render rootDir: backend). It:
 #   1. applies Alembic migrations (the source of truth for the schema),

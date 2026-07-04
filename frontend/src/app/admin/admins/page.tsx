@@ -171,7 +171,7 @@ function CreateAdminCard({
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@rsvp60.com"
+              placeholder="name@gatherarc.com"
               required
             />
           </div>

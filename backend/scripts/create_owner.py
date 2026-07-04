@@ -14,13 +14,13 @@ It changes exactly one ``admins`` row and never touches event / RSVP data.
 Usage (from the backend/ directory, venv active):
 
     # Promote an account you already have — fastest, keeps its current password:
-    python -m scripts.create_owner admin@rsvp60.com --promote
+    python -m scripts.create_owner admin@gatherarc.com --promote
 
     # Create a brand-new owner (prompts for a hidden password):
-    python -m scripts.create_owner owner@rsvp60.com --name "Your Name"
+    python -m scripts.create_owner owner@gatherarc.com --name "Your Name"
 
     # Non-interactive password (visible in shell history — dev only):
-    python -m scripts.create_owner owner@rsvp60.com --password "s3cret-pass"
+    python -m scripts.create_owner owner@gatherarc.com --password "s3cret-pass"
 
 Whatever DATABASE_URL is in your environment / backend/.env is the database it
 writes to, so double-check you are not pointed at production.

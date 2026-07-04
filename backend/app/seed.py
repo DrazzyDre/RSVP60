@@ -24,9 +24,9 @@ from .security import hash_password
 # Note: emails use a real TLD (.com) because the email validator rejects
 # reserved special-use domains such as `.test` / `example.com`.
 ADMINS = [
-    ("owner@rsvp60.com", "Grace Adeyemi", "owner", "owner123"),
-    ("admin@rsvp60.com", "Tunde Bakare", "admin", "admin123"),
-    ("viewer@rsvp60.com", "Chidinma Okafor", "viewer", "viewer123"),
+    ("owner@gatherarc.com", "Grace Adeyemi", "owner", "owner123"),
+    ("admin@gatherarc.com", "Tunde Bakare", "admin", "admin123"),
+    ("viewer@gatherarc.com", "Chidinma Okafor", "viewer", "viewer123"),
 ]
 
 
@@ -37,7 +37,7 @@ def _dt(days_ago: int, hour: int = 12) -> datetime:
 def _guard_production() -> None:
     """Refuse to run the destructive demo seed in production.
 
-    The seed DROPS ALL TABLES and creates demo admins (admin@rsvp60.com /
+    The seed DROPS ALL TABLES and creates demo admins (admin@gatherarc.com /
     admin123). That must never happen silently against a production database.
     An explicit override (ALLOW_PROD_SEED=1) is required to proceed.
     """

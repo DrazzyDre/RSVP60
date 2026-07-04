@@ -1,4 +1,4 @@
-"""RSVP60 FastAPI application entrypoint."""
+"""GatherArc FastAPI application entrypoint."""
 
 import logging
 
@@ -24,12 +24,12 @@ def configure_logging() -> None:
 
 
 configure_logging()
-logger = logging.getLogger("rsvp60")
+logger = logging.getLogger("gatherarc")
 
 app = FastAPI(
-    title="RSVP60 API",
+    title="GatherArc API",
     version="1.0.0",
-    description="Electronic invite & RSVP platform (multi-event).",
+    description="GatherArc — invitations, RSVPs, guest communications and event-day operations (multi-event).",
 )
 
 app.add_middleware(
@@ -59,7 +59,7 @@ def on_startup() -> None:
 
     # Log the effective runtime mode + backends (never the credentials).
     logger.info(
-        "RSVP60 starting: env=%s db=%s storage=%s email=%s trust_proxy=%s",
+        "GatherArc starting: env=%s db=%s storage=%s email=%s trust_proxy=%s",
         settings.app_env,
         engine.dialect.name,
         settings.storage_backend,
@@ -93,7 +93,7 @@ def health() -> dict:
     Use this for the hosting platform's health check."""
     return {
         "status": "ok",
-        "service": "rsvp60-api",
+        "service": "gatherarc-api",
         "env": settings.app_env,
     }
 

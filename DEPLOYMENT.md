@@ -1,6 +1,6 @@
-# RSVP60 — Production Deployment & Operations
+# GatherArc — Production Deployment & Operations
 
-Practical guide for deploying RSVP60 to **Vercel (frontend) + Render/Railway
+Practical guide for deploying GatherArc to **Vercel (frontend) + Render/Railway
 (backend) + Supabase (Postgres + Storage) + Resend (email)**, plus the manual
 integration checklists and recovery procedures.
 
@@ -31,8 +31,8 @@ integration checklists and recovery procedures.
 
 ### Controlled pilot go-live workflow (staging first)
 
-Do a **pilot** pass in a dedicated staging project (name it *RSVP60 Pilot* /
-*RSVP60 Staging*) with **synthetic data only** before treating the system as
+Do a **pilot** pass in a dedicated staging project (name it *GatherArc Pilot* /
+*GatherArc Staging*) with **synthetic data only** before treating the system as
 production. Use the one-page gate in [`GO_LIVE_CHECKLIST.md`](./GO_LIVE_CHECKLIST.md).
 
 1. Create/configure the pilot Supabase project (Postgres).
@@ -47,7 +47,7 @@ production. Use the one-page gate in [`GO_LIVE_CHECKLIST.md`](./GO_LIVE_CHECKLIS
 10. Cross-wire `SITE_URL`, `CORS_ORIGINS` and `NEXT_PUBLIC_API_URL` to the real origins.
 11. Redeploy the affected services.
 12. Log in as owner.
-13. Create a synthetic pilot event through the UI (e.g. *RSVP60 Pilot Celebration*).
+13. Create a synthetic pilot event through the UI (e.g. *GatherArc Pilot Celebration*).
 14. Run the full pilot smoke scenario (§6 + the lifecycle in the phase brief).
 15. Archive/remove the pilot records when validation is complete (§14).
 

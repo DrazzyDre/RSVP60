@@ -111,7 +111,8 @@ def _wrap(event, heading: str, intro_html: str, extra_html: str = "") -> str:
     </td></tr>
     <tr><td style="padding:18px 28px;background:#f9fafb;border-top:1px solid #e5e7eb;color:#6b7280;font-size:12px">
       {footer_contact}
-      <p style="margin:0">You received this because you shared your email when responding to this invitation.</p>
+      <p style="margin:0 0 6px">You received this because you shared your email when responding to this invitation.</p>
+      <p style="margin:0;color:#9ca3af;font-size:11px">Powered by GatherArc — From invite to arrival.</p>
     </td></tr>
   </table>
 </body></html>"""

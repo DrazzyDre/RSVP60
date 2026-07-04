@@ -1178,7 +1178,7 @@ def export_rsvps(
     return StreamingResponse(
         iter([buffer.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=rsvp60-guests.csv"},
+        headers={"Content-Disposition": "attachment; filename=gatherarc-guests.csv"},
     )
 
 

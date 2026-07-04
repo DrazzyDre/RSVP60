@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { AuthProvider } from "@/components/admin/auth-context";
 import { EventProvider, useEvents } from "@/components/admin/event-context";
 import { EventSwitcher } from "@/components/admin/EventSwitcher";
+import { BrandLogo } from "@/components/brand/BrandLogo";
 import { ToastProvider } from "@/components/ui/toast";
 import { ConfirmProvider } from "@/components/ui/confirm";
 
@@ -166,9 +167,9 @@ function AdminShell({
     <div className="flex h-screen flex-col overflow-hidden bg-muted/40 lg:flex-row print:h-auto print:overflow-visible">
       {/* Sidebar (desktop) — fixed full height; does not scroll with content */}
       <aside className="hidden w-64 flex-shrink-0 border-r bg-white lg:flex lg:flex-col print:hidden">
-        <div className="border-b p-6">
-          <p className="font-serif text-xl font-bold text-royal">RSVP60</p>
-          <p className="text-xs text-muted-foreground">Admin Console</p>
+        <div className="border-b bg-royal p-5">
+          <BrandLogo variant="light" priority className="h-7" />
+          <p className="mt-2 text-xs text-white/70">Admin Console</p>
         </div>
         <div className="border-b p-4">
           <EventSwitcher />
@@ -206,7 +207,7 @@ function AdminShell({
           >
             <Menu className="h-5 w-5" />
           </button>
-          <p className="font-serif text-lg font-bold text-royal">RSVP60</p>
+          <BrandLogo variant="mark" className="h-7 w-7" />
           <CurrentEventPill />
         </header>
 
@@ -236,8 +237,8 @@ function AdminShell({
           >
             <div className="flex items-center justify-between border-b p-4">
               <div>
-                <p className="font-serif text-lg font-bold text-royal">RSVP60</p>
-                <p className="text-xs text-muted-foreground">Admin Console</p>
+                <BrandLogo variant="full" className="h-7" />
+                <p className="mt-1 text-xs text-muted-foreground">Admin Console</p>
               </div>
               <button
                 type="button"

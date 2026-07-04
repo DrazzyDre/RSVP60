@@ -1,4 +1,4 @@
-# RSVP60 — Go-Live Checklist
+# GatherArc — Go-Live Checklist
 
 A concise, tick-through checklist for a **controlled pilot / production launch**.
 Full procedures live in [`DEPLOYMENT.md`](./DEPLOYMENT.md); this is the one-page
@@ -18,7 +18,7 @@ the real event. Never validate with real guest data or send bulk email in a test
 ## Security
 
 - [ ] Strong, unique `JWT_SECRET` (`openssl rand -hex 32`) — not the dev default
-- [ ] No demo/seed accounts in the database (no `owner@rsvp60.com` etc.)
+- [ ] No demo/seed accounts in the database (no `owner@gatherarc.com` etc.)
 - [ ] First owner provisioned via `python -m app.bootstrap_owner` (no seed/manual SQL)
 - [ ] `CORS_ORIGINS` is the explicit frontend origin(s) — **no wildcard**, no localhost
 - [ ] `SUPABASE_SERVICE_ROLE_KEY` and `RESEND_API_KEY` are backend-only (never `NEXT_PUBLIC_*`)

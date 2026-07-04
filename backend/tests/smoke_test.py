@@ -1,4 +1,4 @@
-"""RSVP60 backend smoke tests.
+"""GatherArc backend smoke tests.
 
 Exercises the real HTTP API against whatever database the server is running on
 (SQLite or PostgreSQL). Run the API with a freshly seeded database, then:
@@ -77,7 +77,7 @@ import urllib.error
 import urllib.request
 
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8010").rstrip("/")
-ADMIN_EMAIL = os.getenv("SMOKE_ADMIN_EMAIL", "admin@rsvp60.com")
+ADMIN_EMAIL = os.getenv("SMOKE_ADMIN_EMAIL", "admin@gatherarc.com")
 ADMIN_PASSWORD = os.getenv("SMOKE_ADMIN_PASSWORD", "admin123")
 
 # Fixed demo tokens created by app.seed.
@@ -151,7 +151,7 @@ def get_status(path, token=None):
 
 
 def post_multipart(path, token, field, filename, content_type, body):
-    boundary = "----rsvp60smoke"
+    boundary = "----gatherarcsmoke"
     pre = (
         f"--{boundary}\r\n"
         f'Content-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'
@@ -185,7 +185,7 @@ def tree_by_name(token, event_id, name):
 
 
 def main() -> int:
-    print(f"RSVP60 smoke test against {BASE_URL}\n")
+    print(f"GatherArc smoke test against {BASE_URL}\n")
 
     # --- Auth -------------------------------------------------------------
     status, raw = post("/api/admin/login", {"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
@@ -408,14 +408,14 @@ def main() -> int:
         s, raw = post("/api/admin/login", {"email": email, "password": pw})
         return s, (json.loads(raw) if s == 200 else raw)
 
-    s, owner = _login("owner@rsvp60.com", "owner123")
+    s, owner = _login("owner@gatherarc.com", "owner123")
     check("owner can log in", s == 200, str(s))
     otok = owner["access_token"] if s == 200 else None
     check(
         "login response carries role + is_active",
         s == 200 and owner["admin"]["role"] == "owner" and owner["admin"]["is_active"] is True,
     )
-    s, viewer = _login("viewer@rsvp60.com", "viewer123")
+    s, viewer = _login("viewer@gatherarc.com", "viewer123")
     vtok = viewer["access_token"] if s == 200 else None
     check("viewer can log in", s == 200, str(s))
 
@@ -433,20 +433,20 @@ def main() -> int:
     # Create admin: owner yes, admin/viewer no.
     s, raw = post(
         "/api/admin/admins",
-        {"email": "temp-admin@rsvp60.com", "full_name": "Temp", "role": "viewer", "password": "temp1234"},
+        {"email": "temp-admin@gatherarc.com", "full_name": "Temp", "role": "viewer", "password": "temp1234"},
         otok,
     )
     check("owner creates admin (201)", s == 201, f"{s} {raw[:100]}")
     temp_id = json.loads(raw)["id"] if s == 201 else None
     s, _ = post(
         "/api/admin/admins",
-        {"email": "x@rsvp60.com", "full_name": "X", "role": "viewer", "password": "xxxx1234"},
+        {"email": "x@gatherarc.com", "full_name": "X", "role": "viewer", "password": "xxxx1234"},
         token,
     )
     check("admin cannot create admin (403)", s == 403, str(s))
     s, _ = post(
         "/api/admin/admins",
-        {"email": "y@rsvp60.com", "full_name": "Y", "role": "viewer", "password": "yyyy1234"},
+        {"email": "y@gatherarc.com", "full_name": "Y", "role": "viewer", "password": "yyyy1234"},
         vtok,
     )
     check("viewer cannot create admin (403)", s == 403, str(s))
@@ -458,7 +458,7 @@ def main() -> int:
     # Deactivate -> inactive cannot log in -> reactivate.
     s, _ = patch(f"/api/admin/admins/{temp_id}/deactivate", {}, otok)
     check("owner deactivates admin", s == 200, str(s))
-    s, raw = post("/api/admin/login", {"email": "temp-admin@rsvp60.com", "password": "temp1234"})
+    s, raw = post("/api/admin/login", {"email": "temp-admin@gatherarc.com", "password": "temp1234"})
     check("inactive admin cannot log in (403)", s == 403, f"{s} {raw[:60]}")
     s, _ = patch(f"/api/admin/admins/{temp_id}/reactivate", {}, otok)
     check("owner reactivates admin", s == 200, str(s))
@@ -497,13 +497,13 @@ def main() -> int:
     for weak in ["admin123", "owner123", "password", "short", "        "]:
         s, _ = post(
             "/api/admin/admins",
-            {"email": "weak-test@rsvp60.com", "full_name": "W", "role": "viewer", "password": weak},
+            {"email": "weak-test@gatherarc.com", "full_name": "W", "role": "viewer", "password": weak},
             otok,
         )
         check(f"weak password rejected ({weak.strip() or 'blank'})", s == 422, f"status={s}")
     s, raw = post(
         "/api/admin/admins",
-        {"email": "strongpw@rsvp60.com", "full_name": "S", "role": "viewer", "password": "Str0ngPass!"},
+        {"email": "strongpw@gatherarc.com", "full_name": "S", "role": "viewer", "password": "Str0ngPass!"},
         otok,
     )
     check("strong password accepted (201)", s == 201, f"{s} {raw[:80]}")
@@ -769,6 +769,13 @@ def main() -> int:
     check("health reports env", "env" in health)
     s, rdy = jget("/api/ready")
     check("readiness endpoint ok (db reachable)", s == 200 and rdy.get("status") == "ready", f"{s} {rdy}")
+    check("health service label is gatherarc-api", health.get("service") == "gatherarc-api", str(health.get("service")))
+    s, oapi = jget("/openapi.json")
+    check(
+        "API title is GatherArc (old brand gone)",
+        s == 200 and oapi.get("info", {}).get("title") == "GatherArc API",
+        str(oapi.get("info", {}).get("title") if oapi else None),
+    )
 
     # Neither admin nor public payloads leak storage/email/server secrets.
     _, evraw = get(f"/api/admin/events/{B}", token)
@@ -848,12 +855,12 @@ def main() -> int:
         )
 
     # --- Phase 3.5: login rate limiting (run last) -----------------------
-    brute = {"email": "bruteforce@rsvp60.com", "password": "wrongwrong"}
+    brute = {"email": "bruteforce@gatherarc.com", "password": "wrongwrong"}
     fails = [post("/api/admin/login", brute)[0] for _ in range(5)]
     check("failed logins return 401 before the limit", all(x == 401 for x in fails), str(fails))
     s, raw = post("/api/admin/login", brute)
     check("repeated failed logins are blocked (429)", s == 429, f"status={s} {raw[:80]}")
-    s, _ = post("/api/admin/login", {"email": "owner@rsvp60.com", "password": "owner123"})
+    s, _ = post("/api/admin/login", {"email": "owner@gatherarc.com", "password": "owner123"})
     check("valid login not blocked by another account's failures", s == 200, str(s))
 
     print(f"\n{_passed} passed, {_failed} failed")

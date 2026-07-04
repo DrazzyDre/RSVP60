@@ -7,12 +7,26 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // RSVP60 palette — royal blue & gold, warm celebratory tones.
+        // GatherArc palette — midnight navy, warm gold, soft ivory.
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
+        // Centralized GatherArc brand tokens (semantic; backed by CSS vars).
+        brand: {
+          primary: "var(--brand-primary)",
+          accent: "var(--brand-accent)",
+          surface: "var(--brand-surface)",
+          background: "var(--brand-background)",
+          text: "var(--brand-text)",
+          muted: "var(--brand-muted)",
+          border: "var(--brand-border)",
+        },
+        ivory: {
+          DEFAULT: "#F7F3EA",
+          dark: "#F0EADB",
+        },
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
@@ -33,15 +47,19 @@ const config: Config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        // Warm gold — GatherArc accent. (`gold` class names retained across the
+        // app; only the values move to the brand palette to re-theme globally.)
         gold: {
-          DEFAULT: "#C8A24B",
-          light: "#E4C778",
-          dark: "#9A7A2E",
+          DEFAULT: "#C28A3D",
+          light: "#D6A85F",
+          dark: "#9A6B2C",
         },
+        // Midnight navy — GatherArc primary foundation. (`royal` class names are
+        // retained app-wide; the values now hold navy so the whole UI re-themes.)
         royal: {
-          DEFAULT: "#1E2A6B",
-          light: "#38499E",
-          dark: "#141C4A",
+          DEFAULT: "#142033",
+          light: "#26374F",
+          dark: "#0D1520",
         },
       },
       borderRadius: {

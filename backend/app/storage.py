@@ -25,7 +25,7 @@ from typing import Protocol
 
 from .config import settings
 
-logger = logging.getLogger("rsvp60.storage")
+logger = logging.getLogger("gatherarc.storage")
 
 # Accepted image types -> canonical file extension.
 ALLOWED_IMAGE_TYPES: dict[str, str] = {

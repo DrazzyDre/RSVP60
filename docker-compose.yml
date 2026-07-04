@@ -1,4 +1,4 @@
-# RSVP60 — local development stack (PostgreSQL + FastAPI + Next.js)
+# GatherArc — local development stack (PostgreSQL + FastAPI + Next.js)
 #
 #   docker compose up --build        # start everything
 #   docker compose exec backend python -m app.seed   # load demo data

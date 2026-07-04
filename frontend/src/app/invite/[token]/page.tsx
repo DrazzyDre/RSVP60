@@ -279,7 +279,7 @@ export default function InvitePage() {
             {event.host_or_celebrant_name
               ? `With warm regards — ${event.host_or_celebrant_name} · `
               : ""}
-            Powered by RSVP60
+            Powered by GatherArc — From invite to arrival.
           </p>
         </footer>
       </div>

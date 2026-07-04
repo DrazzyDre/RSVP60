@@ -77,7 +77,7 @@ function QrDialog({
   const canvasWrap = useRef<HTMLDivElement>(null);
   const svgWrap = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
-  const fileBase = `rsvp60-qr-${slugify(treeName)}`;
+  const fileBase = `gatherarc-qr-${slugify(treeName)}`;
 
   function downloadPng() {
     const canvas = canvasWrap.current?.querySelector("canvas");

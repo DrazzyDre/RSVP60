@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     #              RESEND_API_KEY and EMAIL_FROM_ADDRESS.
     email_backend: str = "console"
     email_from_address: str = ""
-    email_from_name: str = "RSVP60"
+    email_from_name: str = "GatherArc"
     # Provider API key — a SERVER-ONLY secret. Never sent to the frontend and
     # never stored in the communication log.
     resend_api_key: str = ""

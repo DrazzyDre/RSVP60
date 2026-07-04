@@ -491,7 +491,7 @@ function GuestQrDialog({
     typeof window !== "undefined"
       ? `${window.location.origin}/admin/check-in?token=${rsvp.check_in_token}`
       : "";
-  const fileBase = `rsvp60-checkin-${slugify(rsvp.full_name)}`;
+  const fileBase = `gatherarc-checkin-${slugify(rsvp.full_name)}`;
 
   function downloadPng() {
     const canvas = canvasWrap.current?.querySelector("canvas");

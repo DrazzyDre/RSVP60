@@ -21,7 +21,7 @@ from . import templates
 from .base import EmailMessage
 from .providers import get_provider
 
-logger = logging.getLogger("rsvp60.email")
+logger = logging.getLogger("gatherarc.email")
 
 _SENSITIVE_META_KEYS = ("password", "secret", "token", "hash", "apikey", "key")
 

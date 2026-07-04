@@ -29,9 +29,9 @@ export function downloadICS(event: EventPublic) {
   const ics = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//RSVP60//EN",
+    "PRODID:-//GatherArc//EN",
     "BEGIN:VEVENT",
-    `UID:${Date.now()}@rsvp60`,
+    `UID:${Date.now()}@gatherarc`,
     `DTSTART:${start}`,
     `DTEND:${end}`,
     `SUMMARY:${event.title || event.name}`,
@@ -45,7 +45,7 @@ export function downloadICS(event: EventPublic) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "rsvp60-invite.ics";
+  a.download = "gatherarc-invite.ics";
   a.click();
   URL.revokeObjectURL(url);
 }

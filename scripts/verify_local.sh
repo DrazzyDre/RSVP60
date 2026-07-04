@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# RSVP60 — final local verification.
+# GatherArc — final local verification.
 #
 # Brings up the full Docker stack, seeds demo data, and checks every critical
 # surface end to end so you can confirm a clean machine is ready to build on.
@@ -54,7 +54,7 @@ if [ "$CODE" = "200" ]; then pass "frontend home ($CODE)"; else fail "frontend h
 echo "==> 7/8  Admin login"
 CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BACKEND/api/admin/login" \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@rsvp60.com","password":"admin123"}')
+  -d '{"email":"admin@gatherarc.com","password":"admin123"}')
 if [ "$CODE" = "200" ]; then pass "admin login ($CODE)"; else fail "admin login ($CODE)"; fi
 
 echo "==> 8/8  Backend smoke tests against Postgres"

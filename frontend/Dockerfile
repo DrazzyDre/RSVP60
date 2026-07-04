@@ -1,4 +1,4 @@
-# RSVP60 Next.js frontend image (dev-mode container for local Docker Compose).
+# GatherArc Next.js frontend image (dev-mode container for local Docker Compose).
 FROM node:20-alpine
 
 WORKDIR /app

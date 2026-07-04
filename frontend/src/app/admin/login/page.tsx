@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BrandLogo } from "@/components/brand/BrandLogo";
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -43,10 +44,8 @@ export default function AdminLoginPage() {
     <main className="invite-gradient flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-gold-dark">
-            RSVP60
-          </p>
-          <CardTitle className="mt-1 font-serif text-2xl text-royal">
+          <BrandLogo variant="full" priority className="mx-auto h-10" />
+          <CardTitle className="mt-4 font-serif text-2xl text-royal">
             Admin Sign In
           </CardTitle>
         </CardHeader>
@@ -59,7 +58,7 @@ export default function AdminLoginPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@rsvp60.com"
+                placeholder="admin@gatherarc.com"
                 autoComplete="username"
                 required
               />

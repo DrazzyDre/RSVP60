@@ -1,4 +1,4 @@
-"""SQLAlchemy ORM models for RSVP60.
+"""SQLAlchemy ORM models for GatherArc.
 
 String UUID primary keys keep the schema portable between SQLite (local dev)
 and PostgreSQL/Supabase (production) without dialect-specific column types.

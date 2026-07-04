@@ -18,13 +18,13 @@ import uuid
 from ..config import settings
 from .base import EmailMessage, EmailProvider, EmailResult
 
-logger = logging.getLogger("rsvp60.email")
+logger = logging.getLogger("gatherarc.email")
 
 RESEND_ENDPOINT = "https://api.resend.com/emails"
 
 
 def _from_header() -> str:
-    name = (settings.email_from_name or "RSVP60").strip()
+    name = (settings.email_from_name or "GatherArc").strip()
     address = (settings.email_from_address or "").strip()
     if name and address:
         return f"{name} <{address}>"

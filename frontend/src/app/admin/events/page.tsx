@@ -102,7 +102,7 @@ export default function EventsPage() {
         <div>
           <h1 className="font-serif text-2xl font-bold text-royal">Events</h1>
           <p className="text-sm text-muted-foreground">
-            Create and manage every event on RSVP60.
+            Create and manage every event on GatherArc.
           </p>
         </div>
         {canEdit && (

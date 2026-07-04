@@ -26,7 +26,7 @@ from ..seat_logic import (
 from ..storage import resolve_flyer_url
 from ..utils import normalize_phone
 
-logger = logging.getLogger("rsvp60")
+logger = logging.getLogger("gatherarc")
 
 router = APIRouter(prefix="/api/invites", tags=["public"])
 

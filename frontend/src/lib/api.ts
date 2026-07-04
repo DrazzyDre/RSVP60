@@ -1,4 +1,4 @@
-// Thin fetch wrapper around the RSVP60 FastAPI backend.
+// Thin fetch wrapper around the GatherArc FastAPI backend.
 
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:8010";

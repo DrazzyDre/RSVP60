@@ -1,4 +1,4 @@
-# RSVP60 — developer helpers.
+# GatherArc — developer helpers.
 #
 # Requires `make`. On Windows use Git Bash + make, WSL, or just run the
 # underlying commands shown in each recipe directly in PowerShell.

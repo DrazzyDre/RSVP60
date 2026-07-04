@@ -142,12 +142,13 @@ export default function SettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">About RSVP60</CardTitle>
+          <CardTitle className="text-base">About GatherArc</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted-foreground">
           <p>
-            RSVP60 is a reusable, event-aware invite &amp; RSVP platform. Each event
-            has its own invite trees, seat allocations and RSVPs.
+            GatherArc is a reusable platform for invitations, RSVPs, guest
+            communications and event-day operations. Each event has its own invite
+            trees, seat allocations and RSVPs.
           </p>
           <p>
             Owners can add, deactivate and set roles for admin accounts from the

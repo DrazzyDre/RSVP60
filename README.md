@@ -1,18 +1,21 @@
-# RSVP60
+# GatherArc
 
-A mobile-first **electronic invite & RSVP platform**. Guests open a private,
-secure invite link, view a beautiful invitation, and RSVP (with an optional
-plus-one / plus-two depending on their link). Admins manage everything from a
-private dashboard.
+**From invite to arrival.** A mobile-first platform for **invitations, RSVPs,
+guest communications, and event-day operations**. Guests open a private, secure
+invite link, view a beautiful invitation, and RSVP (with an optional plus-one /
+plus-two depending on their link). Admins manage everything from a private
+dashboard.
 
-Although the first seeded event is a **60th birthday celebration**, RSVP60 is
+Although the first seeded event is a **60th birthday celebration**, GatherArc is
 built as a **reusable, multi-event platform** — the same code powers birthdays,
 weddings, funerals, memorials, anniversaries, church events, dinners,
-conferences and other private events. Admins can create multiple events and
+conferences and other private gatherings. Admins can create multiple events and
 switch between them; every invite tree, RSVP, seat count and chart is scoped to
 a single event.
 
-> Product name stays **RSVP60** for now, even though the system is event-agnostic.
+> Formerly **RSVP60** — the product was renamed to **GatherArc** to reflect its
+> broader, event-agnostic architecture. Some internal technical identifiers
+> (local database name, Docker service creds) intentionally retain the old name.
 
 ---
 
@@ -96,7 +99,7 @@ re-validates seat availability.
 
 ## Invite presentation & sharing
 
-RSVP60 renders each public invite entirely from **event data** — there is no
+GatherArc renders each public invite entirely from **event data** — there is no
 birthday-specific hardcoding, so any event type looks right.
 
 - **Branding fields** — `invite_headline` (hero banner line) and `invite_message`
@@ -314,7 +317,7 @@ bodies, no full provider responses.
 ## Project structure
 
 ```
-RSVP60/
+gatherarc/
 ├── docker-compose.yml        # local Postgres + backend + frontend
 ├── backend/                  # FastAPI app
 │   ├── Dockerfile
@@ -472,7 +475,7 @@ convenience.)
 | `SUPABASE_STORAGE_BUCKET`        | `flyers`                      | Supabase Storage bucket name (create it as a **public** bucket).   |
 | `EMAIL_BACKEND`                  | `console`                     | `console` (log only, default) or `resend` (live transactional email). |
 | `EMAIL_FROM_ADDRESS`             | _(empty)_                     | From-address for outgoing mail. Required for a live provider.       |
-| `EMAIL_FROM_NAME`                | `RSVP60`                      | Display name on outgoing mail.                                      |
+| `EMAIL_FROM_NAME`                | `GatherArc`                   | Display name on outgoing mail.                                      |
 | `RESEND_API_KEY`                 | _(empty)_                     | Resend API key — **server-only secret**, never exposed to the frontend, never logged. Required when `EMAIL_BACKEND=resend`. |
 | `EMAIL_TIMEOUT_SECONDS`          | `10`                          | Hard cap on a single synchronous provider send.                    |
 
@@ -507,9 +510,9 @@ After running `python -m app.seed`:
 
 | Email                | Password     | Role     |
 | -------------------- | ------------ | -------- |
-| `owner@rsvp60.com`   | `owner123`   | owner    |
-| `admin@rsvp60.com`   | `admin123`   | admin    |
-| `viewer@rsvp60.com`  | `viewer123`  | viewer   |
+| `owner@gatherarc.com`   | `owner123`   | owner    |
+| `admin@gatherarc.com`   | `admin123`   | admin    |
+| `viewer@gatherarc.com`  | `viewer123`  | viewer   |
 
 **Seeded events:** _Chief Emmanuel Adeyemi's 60th Birthday_ (4 trees) and
 _Tolu & Bisi's Wedding_ (2 trees).
@@ -606,7 +609,7 @@ curl http://localhost:8010/api/invites/fam-demo-token-000000000001
 # 6. Admin login works
 curl -X POST http://localhost:8010/api/admin/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@rsvp60.com","password":"admin123"}'
+  -d '{"email":"admin@gatherarc.com","password":"admin123"}'
 
 # 7. Smoke tests against Postgres
 docker compose exec backend python -m tests.smoke_test

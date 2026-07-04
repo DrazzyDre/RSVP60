@@ -1,4 +1,4 @@
-# Render blueprint for the RSVP60 backend (FastAPI).
+# Render blueprint for the GatherArc backend (FastAPI).
 #
 # Frontend deploys to Vercel; the database + file storage use Supabase; email
 # uses Resend. This file provisions ONLY the API web service.
@@ -8,7 +8,7 @@
 # SUPABASE_*, EMAIL_FROM_ADDRESS and RESEND_API_KEY.
 services:
   - type: web
-    name: rsvp60-api
+    name: gatherarc-api
     runtime: python
     rootDir: backend
     plan: free
@@ -49,7 +49,7 @@ services:
       - key: EMAIL_FROM_ADDRESS    # a verified Resend sender
         sync: false
       - key: EMAIL_FROM_NAME
-        value: RSVP60
+        value: GatherArc
       - key: RESEND_API_KEY        # server-only secret
         sync: false
       - key: EMAIL_TIMEOUT_SECONDS

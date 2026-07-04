@@ -17,7 +17,7 @@ from types import SimpleNamespace
 from app import urls
 from app.email import templates
 
-PILOT_ORIGIN = "https://rsvp60-pilot.vercel.app"
+PILOT_ORIGIN = "https://gatherarc-pilot.vercel.app"
 # Substrings that must never appear in a production-generated URL.
 FORBIDDEN = ["localhost", "127.0.0.1", "0.0.0.0", ":8010", ":3005", ":3000"]
 
@@ -59,8 +59,8 @@ class EmailUrlTests(unittest.TestCase):
 
     def _event(self):
         return SimpleNamespace(
-            title="RSVP60 Pilot Celebration",
-            name="RSVP60 Pilot Celebration",
+            title="GatherArc Pilot Celebration",
+            name="GatherArc Pilot Celebration",
             host_or_celebrant_name="Pilot Host",
             event_date=None,
             event_time="5:00 PM",

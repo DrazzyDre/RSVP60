@@ -1,4 +1,4 @@
-"""Provider-agnostic transactional email for RSVP60.
+"""Provider-agnostic transactional email for GatherArc.
 
 Nothing outside this package imports a specific vendor. Routers call the
 high-level functions in :mod:`app.email.service`; the concrete provider is

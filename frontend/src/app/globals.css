@@ -3,29 +3,42 @@
 @tailwind utilities;
 
 :root {
-  --background: 40 33% 98%;
-  --foreground: 232 40% 15%;
+  /* GatherArc platform palette — midnight navy #142033, warm gold #C28A3D,
+     soft ivory #F7F3EA. Event-specific invite themes live in lib/theme.ts and
+     are applied via inline styles, so they are never affected by these tokens. */
+  --background: 41 44% 94%; /* soft ivory */
+  --foreground: 218 44% 14%; /* midnight navy */
 
-  --card: 0 0% 100%;
-  --card-foreground: 232 40% 15%;
+  --card: 0 0% 100%; /* white cards for form clarity on ivory backgrounds */
+  --card-foreground: 218 44% 14%;
 
-  --primary: 231 55% 27%; /* royal blue */
-  --primary-foreground: 40 33% 98%;
+  --primary: 218 44% 14%; /* midnight navy */
+  --primary-foreground: 41 44% 96%;
 
-  --secondary: 43 55% 54%; /* gold */
-  --secondary-foreground: 232 40% 15%;
+  --secondary: 35 52% 50%; /* warm gold */
+  --secondary-foreground: 218 44% 14%;
 
-  --muted: 40 20% 94%;
-  --muted-foreground: 232 12% 42%;
+  --muted: 41 30% 92%;
+  --muted-foreground: 218 12% 40%;
 
-  --accent: 43 60% 90%;
-  --accent-foreground: 232 40% 20%;
+  --accent: 38 45% 88%; /* soft gold tint */
+  --accent-foreground: 218 44% 18%;
 
-  --border: 232 15% 88%;
-  --input: 232 15% 85%;
-  --ring: 231 55% 40%;
+  --border: 218 16% 86%;
+  --input: 218 16% 84%;
+  --ring: 35 52% 50%; /* gold focus accent */
 
   --radius: 0.75rem;
+
+  /* Centralized GatherArc brand tokens (semantic; consumed via Tailwind
+     `brand-*` classes). Keep new brand styling referencing these. */
+  --brand-primary: #142033;
+  --brand-accent: #c28a3d;
+  --brand-surface: #ffffff;
+  --brand-background: #f7f3ea;
+  --brand-text: #142033;
+  --brand-muted: #5b6472;
+  --brand-border: #d9dce2;
 }
 
 * {
@@ -38,14 +51,15 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Subtle celebratory gradient used on the public invite page. */
+/* Subtle GatherArc surface gradient (ivory + warm-gold glow) used on
+   platform-level pages such as login and the landing page. */
 .invite-gradient {
   background:
-    radial-gradient(1200px 600px at 50% -10%, rgba(200, 162, 75, 0.18), transparent 60%),
-    linear-gradient(180deg, #f7f4ec 0%, #f2eee2 100%);
+    radial-gradient(1200px 600px at 50% -10%, rgba(194, 138, 61, 0.16), transparent 60%),
+    linear-gradient(180deg, #f7f3ea 0%, #f0ead9 100%);
 }
 
 .gold-divider {
   height: 1px;
-  background: linear-gradient(90deg, transparent, #c8a24b, transparent);
+  background: linear-gradient(90deg, transparent, #c28a3d, transparent);
 }
