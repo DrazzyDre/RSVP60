@@ -211,16 +211,36 @@ Tools for running the actual event, all scoped to the selected event.
   - Duplicate check-in is prevented; check-in records **when** and **who**.
     Editors (owner/admin) can undo or adjust seats; **viewers can view but not
     perform check-in** (enforced on the backend).
+  - **Quick filters** (All / Not checked in / Checked in / Issues) with live
+    counts, large tap targets, a one-tap **clear** button, and clear
+    already-checked-in / not-eligible warnings make door use fast on a phone.
+  - **Race-safe:** check-in flips `checked_in_at` in a single guarded
+    `UPDATE … WHERE checked_in_at IS NULL`, so two admins tapping *Check in* at
+    the same instant can't both succeed — the second reliably gets a friendly
+    409 and the original record (who/when/seats) is never overwritten. Portable
+    across SQLite and PostgreSQL.
+  - **Offline aware:** an *Offline* banner appears when the browser loses its
+    connection and check-in actions are disabled until it returns; a manifest
+    already loaded stays viewable/printable.
+- **In-app QR scanner** — a **Scan** button opens the device camera and reads a
+  guest's check-in QR directly on the check-in page (decoded locally in the
+  browser). It extracts the `check_in_token`, loads the guest and lets an
+  owner/admin check them in. Unknown/invalid codes show a friendly message, and
+  if the camera is unavailable or blocked it falls back to a manual token/link
+  entry. The scanner is behind admin login — **guests still can't self-check-in**.
 - **Guest QR codes** — each RSVP has a random `check_in_token` (never a database
   id). Its QR encodes `/admin/check-in?token=…`, so scanning it on the (login-
   protected) check-in page jumps straight to that guest. View / download PNG·SVG
   / copy from the check-in card.
 - **Guest manifest** (`/admin/manifest`) — a print-friendly door list grouped by
   invite tree, with per-tree totals (guests / confirmed seats / checked-in seats)
-  and grand totals (confirmed / checked-in / waitlisted seats). A **Print** button
-  produces a clean sheet (the app chrome is hidden on print). Full guest data is
-  also downloadable as **CSV** from the RSVPs page (now including checked-in
-  columns).
+  and grand totals (confirmed / checked-in / waitlisted seats). Shows a **generated
+  timestamp**, clear checked-in / *not in* indicators, and a **Compact** toggle for
+  denser printing. A **Print** button produces a clean sheet (the app chrome is
+  hidden on print). Full guest data is also downloadable as **CSV** from the RSVPs
+  page (including checked-in columns).
+- **RSVP list** shows a **Check-in** column/indicator — a checked-in badge with
+  seats and timestamp — so status is visible without opening the check-in page.
 - **Dashboard** gains an *Event-day check-in* card row: checked-in guests,
   checked-in seats, not-yet-checked-in, and check-in rate.
 
