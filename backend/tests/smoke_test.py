@@ -49,6 +49,13 @@ Phase 4.5 additions (door operations polish):
   * duplicate check-in reliably 409s and never overwrites the original record
   * cancelled RSVPs are ineligible; manifest stays event-scoped
 
+Phase 5 additions (guest communications):
+  * opted-in RSVP records a SENT confirmation; no-consent is SKIPPED; no-email
+    produces no log; waitlisted confirmation never claims acceptance
+  * status-change email respects the notify choice; host alerts de-duplicate
+  * reminder audience is accepted+opted-in only; repeated send is guarded (409)
+  * viewer can view comms but not send/resend; comms logs leak no provider secret
+
 Requires the owner/admin/viewer accounts created by app.seed.
 Uses only the Python standard library (no extra deps).
 """
@@ -616,6 +623,135 @@ def main() -> int:
     # Manifest stays scoped to the selected event after the 4.5 changes.
     _, man45 = jget(f"/api/admin/guest-manifest?event_id={B}", token)
     check("manifest still scoped to selected event", man45["event_id"] == B)
+
+    # --- Phase 5: guest communications -----------------------------------
+    # Email backend status (console in tests: configured, not a live provider).
+    s, cstat = jget(f"/api/admin/communications/status?event_id={B}", token)
+    check("comms status ok", s == 200, str(s))
+    check(
+        "comms backend is console + configured in tests",
+        cstat["email"]["backend"] == "console" and cstat["email"]["configured"] is True,
+    )
+    check(
+        "comms status exposes no provider secret",
+        "bearer" not in json.dumps(cstat).lower()
+        and "resend_api_key" not in json.dumps(cstat).lower(),
+    )
+
+    # Public RSVP: email + opt-in -> accepted + confirmation recorded.
+    s, r_acc = post(f"/api/invites/{FAM_TOKEN}/rsvp", {
+        "full_name": "Comms Accept", "phone": "+2347788000001",
+        "email": "comms-accept@example.com", "attending": True,
+        "seats_requested": 1, "email_opt_in": True})
+    acc_body = json.loads(r_acc) if s == 200 else {}
+    check("opted-in RSVP accepted (200)", s == 200 and acc_body.get("status") == "accepted", f"{s} {r_acc[:100]}")
+
+    # Public RSVP: email but NO opt-in -> skipped (not sent).
+    s, _ = post(f"/api/invites/{FAM_TOKEN}/rsvp", {
+        "full_name": "Comms NoConsent", "phone": "+2347788000002",
+        "email": "comms-noconsent@example.com", "attending": True,
+        "seats_requested": 1, "email_opt_in": False})
+    check("no-consent RSVP accepted (200)", s == 200, str(s))
+
+    # Public RSVP: NO email -> no email attempt at all.
+    s, _ = post(f"/api/invites/{FAM_TOKEN}/rsvp", {
+        "full_name": "Comms NoEmail", "phone": "+2347788000003",
+        "attending": True, "seats_requested": 1, "email_opt_in": True})
+    check("no-email RSVP accepted (200)", s == 200, str(s))
+
+    # Public RSVP to a full tree: waitlisted + confirmation must not claim acceptance.
+    s, r_wl = post(f"/api/invites/{VIP_TOKEN}/rsvp", {
+        "full_name": "Comms Waitlist", "phone": "+2347788000004",
+        "email": "comms-wl@example.com", "attending": True,
+        "seats_requested": 3, "email_opt_in": True})
+    wl_body = json.loads(r_wl) if s == 200 else {}
+    check("opted-in waitlisted RSVP (200)", s == 200 and wl_body.get("status") == "waitlisted", f"{s} {r_wl[:100]}")
+
+    # Inspect the event-scoped communication log.
+    _, logs = jget(f"/api/admin/communications/logs?event_id={B}&limit=500", token)
+    items = logs["items"]
+    conf = {i["recipient"]: i for i in items if i["communication_type"] == "rsvp_confirmation"}
+    check("accepted opted-in guest got a SENT confirmation",
+          conf.get("comms-accept@example.com", {}).get("status") == "sent")
+    check("no-consent guest confirmation is SKIPPED, not sent",
+          conf.get("comms-noconsent@example.com", {}).get("status") == "skipped")
+    check("no-email guest produced no confirmation log",
+          not any(i["communication_type"] == "rsvp_confirmation" and not i["recipient"] for i in items))
+    check("waitlisted opted-in guest got a SENT confirmation",
+          conf.get("comms-wl@example.com", {}).get("status") == "sent")
+    check("comms logs are event-scoped", all(i["event_id"] == B for i in items))
+    check("comms logs expose no provider secret",
+          "bearer" not in json.dumps(logs).lower() and "resend_api_key" not in json.dumps(logs).lower())
+    check("host waitlisted alert recorded",
+          any(i["communication_type"] == "host_waitlisted_rsvp" for i in items))
+
+    # Tree-exhausted host alert fires once and is not duplicated.
+    post(f"/api/invites/{VIP_TOKEN}/rsvp", {
+        "full_name": "Comms Waitlist2", "phone": "+2347788000005",
+        "email": "comms-wl2@example.com", "attending": True,
+        "seats_requested": 3, "email_opt_in": True})
+    _, logs2 = jget(f"/api/admin/communications/logs?event_id={B}&limit=500", token)
+    exh = [i for i in logs2["items"] if i["communication_type"] == "host_tree_exhausted"]
+    check("tree-exhausted host alert not duplicated", len(exh) == 1, f"count={len(exh)}")
+
+    # Status-change notification respects the notify choice.
+    _, found = jget(f"/api/admin/rsvps?event_id={B}&search=comms-accept@example.com", token)
+    caid = found[0]["id"] if found else None
+    if caid:
+        s, _ = patch(f"/api/admin/rsvps/{caid}?notify=true", {"rsvp_status": "cancelled"}, token)
+        check("status change with notify=true (200)", s == 200, str(s))
+        s, _ = patch(f"/api/admin/rsvps/{caid}?notify=false", {"rsvp_status": "accepted"}, token)
+        check("status change with notify=false (200)", s == 200, str(s))
+        _, logs3 = jget(f"/api/admin/communications/logs?event_id={B}&limit=500", token)
+        su = [i for i in logs3["items"]
+              if i["communication_type"] == "rsvp_status_update" and i["recipient"] == "comms-accept@example.com"]
+        check("status-update email sent only for the notify=true change", len(su) == 1, f"count={len(su)}")
+
+    # Reminder audience: accepted + opted-in only, no tree-name leak in preview.
+    s, aud = jget(f"/api/admin/communications/reminder/preview?event_id={B}", token)
+    check("reminder preview ok", s == 200, str(s))
+    check("reminder audience is a subset of accepted",
+          1 <= aud["eligible_count"] <= aud["total_accepted"])
+    check("reminder sample recipients all have emails", all(r["email"] for r in aud["sample"]))
+    check("reminder excludes the waitlisted guest",
+          all(r["email"] != "comms-wl@example.com" for r in aud["sample"]))
+    check("reminder preview has content + no tree-name leak",
+          bool(aud["preview"]["subject"])
+          and "Family" not in json.dumps(aud["preview"])
+          and "VIP Guests" not in json.dumps(aud["preview"]))
+
+    # Reminder send permissions + accidental-resend guard.
+    s, _ = post(f"/api/admin/communications/reminder/send?event_id={B}",
+                {"exclude_checked_in": False, "confirm_resend": False}, vtok)
+    check("viewer cannot send reminders (403)", s == 403, str(s))
+    s, _ = post(f"/api/admin/communications/reminder/send?event_id={B}", {}, None)
+    check("anon cannot send reminders (401)", s == 401, str(s))
+    s, sendres = post(f"/api/admin/communications/reminder/send?event_id={B}",
+                      {"exclude_checked_in": False, "confirm_resend": False}, token)
+    check("editor sends reminders (200)", s == 200, f"{s} {sendres[:120]}")
+    check("reminder reached eligible guests", (json.loads(sendres).get("sent", 0) if s == 200 else 0) >= 1)
+    s, _ = post(f"/api/admin/communications/reminder/send?event_id={B}",
+                {"exclude_checked_in": False, "confirm_resend": False}, token)
+    check("repeated reminder without confirm is guarded (409)", s == 409, str(s))
+    s, _ = post(f"/api/admin/communications/reminder/send?event_id={B}",
+                {"exclude_checked_in": False, "confirm_resend": True}, token)
+    check("reminder resend proceeds with explicit confirm (200)", s == 200, str(s))
+
+    # Viewer may VIEW comms; anon may not.
+    s, _ = get(f"/api/admin/communications/status?event_id={B}", vtok)
+    check("viewer can view comms status (200)", s == 200, str(s))
+    s, _ = get(f"/api/admin/communications/logs?event_id={B}", vtok)
+    check("viewer can view comms logs (200)", s == 200, str(s))
+    s, _ = get(f"/api/admin/communications/status?event_id={B}")
+    check("anon cannot view comms status (401)", s == 401, str(s))
+
+    # Resend confirmation: editor yes, viewer no.
+    if caid:
+        s, rr = post(f"/api/admin/rsvps/{caid}/resend-confirmation", {}, token)
+        check("editor can resend confirmation (200)",
+              s == 200 and json.loads(rr)["status"] in ("sent", "skipped", "failed"), f"{s} {rr[:80]}")
+        s, _ = post(f"/api/admin/rsvps/{caid}/resend-confirmation", {}, vtok)
+        check("viewer cannot resend confirmation (403)", s == 403, str(s))
 
     # --- Phase 3.5: login rate limiting (run last) -----------------------
     brute = {"email": "bruteforce@rsvp60.com", "password": "wrongwrong"}

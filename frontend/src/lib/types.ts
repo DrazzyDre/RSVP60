@@ -72,6 +72,9 @@ export interface EventAdmin {
   accent_color: string;
   background_preset: BackgroundPreset;
   status: EventStatus;
+  host_notification_email: string;
+  notify_tree_exhausted: boolean;
+  notify_waitlisted_rsvp: boolean;
   tree_count: number;
   rsvp_count: number;
   created_at: string;
@@ -156,6 +159,11 @@ export interface RsvpAdmin {
   seats_requested: number;
   note_to_celebrant: string | null;
   dietary_note: string | null;
+  email_opt_in: boolean;
+  confirmation_sent_at: string | null;
+  reminder_sent_at: string | null;
+  status_email_sent_at: string | null;
+  check_in_email_sent_at: string | null;
   checked_in_at: string | null;
   checked_in_seats: number | null;
   checked_in_by_admin_id: string | null;
@@ -251,4 +259,84 @@ export interface DashboardCharts {
   rsvp_status_breakdown: { status: string; count: number }[];
   rsvps_over_time: { date: string; count: number }[];
   capacity: { used: number; allocated: number };
+}
+
+// --- Guest communications (Phase 5) --- //
+export type CommunicationStatus = "pending" | "sent" | "failed" | "skipped";
+
+export interface EmailBackendStatus {
+  backend: string;
+  is_live_provider: boolean;
+  configured: boolean;
+  from_address: string;
+  from_name: string;
+}
+
+export interface CommunicationLog {
+  id: string;
+  event_id: string;
+  rsvp_id: string | null;
+  communication_type: string;
+  channel: string;
+  recipient: string;
+  provider: string;
+  status: CommunicationStatus;
+  provider_message_id: string | null;
+  error_summary: string | null;
+  sent_at: string | null;
+  created_at: string;
+}
+
+export interface CommunicationLogPage {
+  items: CommunicationLog[];
+  total: number;
+}
+
+export interface ReminderRecipient {
+  full_name: string;
+  email: string;
+  seats_requested: number;
+  checked_in: boolean;
+}
+
+export interface EmailPreview {
+  subject: string;
+  html: string;
+  text: string;
+}
+
+export interface ReminderAudience {
+  eligible_count: number;
+  total_accepted: number;
+  accepted_without_email: number;
+  accepted_not_opted_in: number;
+  checked_in_eligible: number;
+  exclude_checked_in: boolean;
+  last_reminder_sent_at: string | null;
+  sample: ReminderRecipient[];
+  preview: EmailPreview | null;
+}
+
+export interface CommunicationsStatus {
+  event_id: string;
+  event_name: string;
+  email: EmailBackendStatus;
+  host_notification_email: string;
+  notify_tree_exhausted: boolean;
+  notify_waitlisted_rsvp: boolean;
+  eligible_reminder_count: number;
+  last_reminder_sent_at: string | null;
+  recent: CommunicationLog[];
+}
+
+export interface ReminderSendResult {
+  sent: number;
+  failed: number;
+  skipped: number;
+  message: string;
+}
+
+export interface NotifyResult {
+  status: string;
+  detail: string;
 }

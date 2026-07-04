@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .database import Base, engine
-from .routers import admin, public
+from .routers import admin, communications, public
 from .storage import ensure_local_upload_dir
 
 logger = logging.getLogger("rsvp60")
@@ -70,3 +70,4 @@ def health() -> dict:
 
 app.include_router(public.router)
 app.include_router(admin.router)
+app.include_router(communications.router)

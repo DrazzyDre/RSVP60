@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..database import get_db
 from ..deps import get_current_admin, log_action, require_editor, require_owner
+from ..email import service as email_service
 from ..models import Admin, AuditLog, Event, InviteTree, Rsvp, new_uuid
 from ..ratelimit import (
     check_login_not_blocked,
@@ -63,6 +64,7 @@ from ..schemas import (
     LoginRequest,
     ManifestEntry,
     ManifestTreeTotal,
+    NotifyResult,
     ReadinessItem,
     RsvpAdminOut,
     RsvpUpdate,
@@ -736,6 +738,11 @@ def _serialize_rsvp(
         seats_requested=rsvp.seats_requested,
         note_to_celebrant=rsvp.note_to_celebrant,
         dietary_note=rsvp.dietary_note,
+        email_opt_in=rsvp.email_opt_in,
+        confirmation_sent_at=rsvp.confirmation_sent_at,
+        reminder_sent_at=rsvp.reminder_sent_at,
+        status_email_sent_at=rsvp.status_email_sent_at,
+        check_in_email_sent_at=rsvp.check_in_email_sent_at,
         checked_in_at=rsvp.checked_in_at,
         checked_in_seats=rsvp.checked_in_seats,
         checked_in_by_admin_id=rsvp.checked_in_by_admin_id,
@@ -788,11 +795,13 @@ def update_rsvp(
     payload: RsvpUpdate,
     db: Session = Depends(get_db),
     admin: Admin = Depends(require_editor),
+    notify: bool = Query(False, description="Email the guest about the change."),
 ):
     rsvp = db.get(Rsvp, rsvp_id)
     if rsvp is None:
         raise HTTPException(status_code=404, detail="RSVP not found.")
 
+    old_status = rsvp.rsvp_status
     data = payload.model_dump(exclude_unset=True)
     new_status = data.get("rsvp_status", rsvp.rsvp_status)
     new_seats = data.get("seats_requested", rsvp.seats_requested)
@@ -822,6 +831,20 @@ def update_rsvp(
     log_action(db, admin, "update", "rsvp", rsvp.id, data)
     db.commit()
     db.refresh(rsvp)
+
+    # --- Email side effects (best-effort; never affect this response) --------
+    try:
+        event = rsvp.event
+        # Optional guest notification when the STATUS actually changed.
+        email_service.send_rsvp_status_update(
+            db, rsvp, event, old_status, notify=notify
+        )
+        # Accepting a guest can fill a tree — alert the host once if so.
+        if old_status != new_status and new_status == "accepted":
+            email_service.maybe_alert_tree_exhausted(db, rsvp.invite_tree, event)
+    except Exception:  # pragma: no cover - defensive
+        pass
+
     return _serialize_rsvp(rsvp, _admin_name_map(db, [rsvp]))
 
 
@@ -923,6 +946,13 @@ def check_in_rsvp(
     log_action(db, admin, "rsvp_checked_in", "rsvp", rsvp.id, {"seats": seats})
     db.commit()
     db.refresh(rsvp)
+
+    # Optional 'you're checked in' acknowledgement — never blocks check-in.
+    try:
+        email_service.send_check_in_acknowledgement(db, rsvp, rsvp.event)
+    except Exception:  # pragma: no cover - defensive
+        pass
+
     return _serialize_rsvp(rsvp, _admin_name_map(db, [rsvp]))
 
 
@@ -972,6 +1002,37 @@ def adjust_checked_in_seats(
     db.commit()
     db.refresh(rsvp)
     return _serialize_rsvp(rsvp, _admin_name_map(db, [rsvp]))
+
+
+@router.post("/rsvps/{rsvp_id}/resend-confirmation", response_model=NotifyResult)
+def resend_confirmation(
+    rsvp_id: str,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(require_editor),
+):
+    """Re-send the RSVP confirmation to a guest who has email + consent."""
+    rsvp = _get_rsvp_or_404(db, rsvp_id)
+    if not rsvp.email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This guest has no email address on file.",
+        )
+    if not rsvp.email_opt_in:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This guest has not opted in to email updates.",
+        )
+    log = email_service.send_rsvp_confirmation(db, rsvp, rsvp.event)
+    log_action(db, admin, "rsvp_confirmation_resent", "rsvp", rsvp.id, {})
+    db.commit()
+    if log is None:
+        return NotifyResult(status="not_attempted", detail="Nothing was sent.")
+    detail = {
+        "sent": "Confirmation email sent.",
+        "failed": "The email provider could not send right now.",
+        "skipped": "Skipped — the guest is not eligible.",
+    }.get(log.status, "Recorded.")
+    return NotifyResult(status=log.status, detail=detail)
 
 
 # --------------------------------------------------------------------------- #

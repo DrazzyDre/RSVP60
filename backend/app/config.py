@@ -29,6 +29,20 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
+    # --- Email / guest communications ------------------------------------ #
+    # "console" -> emails are logged (no external calls). Safe default for local
+    #              dev, automated tests and CI.
+    # "resend"  -> transactional email via Resend (https://resend.com). Requires
+    #              RESEND_API_KEY and EMAIL_FROM_ADDRESS.
+    email_backend: str = "console"
+    email_from_address: str = ""
+    email_from_name: str = "RSVP60"
+    # Provider API key — a SERVER-ONLY secret. Never sent to the frontend and
+    # never stored in the communication log.
+    resend_api_key: str = ""
+    # Hard cap on how long a single provider send may block (synchronous send).
+    email_timeout_seconds: int = 10
+
     # --- Flyer / image storage ------------------------------------------- #
     # "local"  -> files saved under `upload_dir`, served from `/media/...`.
     # "supabase" -> files pushed to a Supabase Storage bucket (see below).
@@ -67,6 +81,28 @@ class Settings(BaseSettings):
         return self.storage_backend.lower() == "supabase"
 
     @property
+    def email_backend_name(self) -> str:
+        return (self.email_backend or "console").lower()
+
+    @property
+    def is_email_provider_live(self) -> bool:
+        """True when a real (non-console) email provider is selected."""
+        return self.email_backend_name not in ("", "console", "log")
+
+    @property
+    def email_provider_configured(self) -> bool:
+        """Whether the selected backend has everything it needs to send.
+
+        Console is always 'configured'. A live provider needs its API key and a
+        from-address.
+        """
+        if not self.is_email_provider_live:
+            return True
+        if self.email_backend_name == "resend":
+            return bool(self.resend_api_key and self.email_from_address)
+        return False
+
+    @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
@@ -90,6 +126,19 @@ class Settings(BaseSettings):
                 "STORAGE_BACKEND=supabase requires SUPABASE_URL and "
                 "SUPABASE_SERVICE_ROLE_KEY to be set (the service role key is a "
                 "server-only secret; never expose it to the frontend)."
+            )
+        # A live email provider must be fully configured before we run in
+        # production — otherwise confirmations/reminders would silently fail.
+        if (
+            self.is_production
+            and self.is_email_provider_live
+            and not self.email_provider_configured
+        ):
+            raise RuntimeError(
+                f"EMAIL_BACKEND={self.email_backend_name} requires its provider "
+                "credentials. For Resend set RESEND_API_KEY and EMAIL_FROM_ADDRESS. "
+                "The API key is a server-only secret; never expose it to the "
+                "frontend. Use EMAIL_BACKEND=console for local dev and tests."
             )
 
 

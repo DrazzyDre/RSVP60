@@ -82,6 +82,9 @@ type FormState = {
   accent_color: string;
   background_preset: BackgroundPreset;
   status: EventStatus;
+  host_notification_email: string;
+  notify_tree_exhausted: boolean;
+  notify_waitlisted_rsvp: boolean;
 };
 
 function initial(event?: EventAdmin | null): FormState {
@@ -108,6 +111,9 @@ function initial(event?: EventAdmin | null): FormState {
     accent_color: event?.accent_color ?? "",
     background_preset: event?.background_preset ?? "",
     status: event?.status ?? "active",
+    host_notification_email: event?.host_notification_email ?? "",
+    notify_tree_exhausted: event?.notify_tree_exhausted ?? true,
+    notify_waitlisted_rsvp: event?.notify_waitlisted_rsvp ?? false,
   };
 }
 
@@ -380,6 +386,41 @@ export function EventForm({
             ))}
           </Select>
         </Field>
+      </div>
+
+      {/* Host email alerts */}
+      <div className="space-y-3 rounded-xl border bg-muted/30 p-4">
+        <Label className="text-sm font-semibold text-royal">Host email alerts</Label>
+        <p className="text-xs text-muted-foreground">
+          Optional. When set, the host is emailed about key moments. Leave the
+          address blank to disable host alerts for this event.
+        </p>
+        <Field label="Host notification email">
+          <Input
+            type="email"
+            value={form.host_notification_email}
+            onChange={(e) => set("host_notification_email", e.target.value)}
+            placeholder="host@example.com"
+          />
+        </Field>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={form.notify_tree_exhausted}
+            onChange={(e) => set("notify_tree_exhausted", e.target.checked)}
+            className="h-4 w-4 cursor-pointer accent-royal"
+          />
+          Alert when an invite allocation becomes full
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={form.notify_waitlisted_rsvp}
+            onChange={(e) => set("notify_waitlisted_rsvp", e.target.checked)}
+            className="h-4 w-4 cursor-pointer accent-royal"
+          />
+          Alert when a guest is waitlisted because capacity is full
+        </label>
       </div>
 
       {error && (

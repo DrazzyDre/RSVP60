@@ -25,6 +25,7 @@ a single event.
 - [Admin roles & management](#admin-roles--management)
 - [Account security & audit log](#account-security--audit-log)
 - [Event-day check-in & manifest](#event-day-check-in--manifest)
+- [Guest communications (email)](#guest-communications-email)
 - [Project structure](#project-structure)
 - [Running locally](#running-locally)
   - [Option A — Docker Compose (recommended)](#option-a--docker-compose-recommended)
@@ -248,6 +249,68 @@ All check-in endpoints are admin-protected — **guests cannot check themselves 
 
 ---
 
+## Guest communications (email)
+
+Consent-aware, provider-agnostic transactional email. Everything is a **best-effort
+side effect** — a delivery failure can never roll back an RSVP, a check-in or an
+admin action.
+
+### Email backend
+
+Chosen by `EMAIL_BACKEND`:
+
+- **`console`** (default) — messages are logged, never sent. No credentials, no
+  network. This is what local dev, the test suite and CI use.
+- **`resend`** — transactional email via [Resend](https://resend.com), called over
+  plain HTTPS (no vendor SDK). Requires `RESEND_API_KEY` + `EMAIL_FROM_ADDRESS`.
+
+The provider lives behind a small abstraction (`app/email/`) — routers call
+`service.send_*` functions and never touch a vendor. In **production** the app
+refuses to boot if a live provider is selected but its credentials are missing.
+The API key is server-only: never sent to the frontend, never returned by the
+API, never written to the communication log.
+
+### Consent
+
+Guests are never emailed without **both** an address **and** an explicit opt-in:
+
+> Receive RSVP confirmation and important updates about this event.
+
+The RSVP form shows this checkbox (only active once an email is typed). No email,
+or no consent → nothing is sent (a "skipped" row is recorded when consent is
+absent so admins can see why). No marketing, ever.
+
+### What gets sent
+
+- **RSVP confirmation** — on submit/update, reflecting the *actual* outcome. A
+  waitlisted guest is told they are **on the waitlist / not yet confirmed** — never
+  that they're confirmed.
+- **Status-update** — optional email when an editor changes a status. An RSVPs-page
+  **"Notify guest on status change"** toggle makes the choice explicit; an unchanged
+  status never sends a duplicate.
+- **Event reminder** — a manual, admin-triggered bulk send to **accepted + opted-in**
+  guests only (declined/cancelled/waitlisted are excluded; checked-in guests can be
+  excluded too). Preview the audience and the rendered email first; a repeat send is
+  guarded (409 → explicit resend confirmation).
+- **Check-in acknowledgement** — an optional "you're checked in" email, sent once.
+- **Host alerts** — configurable per event (`host_notification_email`): invite
+  allocation exhausted, a guest waitlisted, and bulk-reminder completion.
+  Exhausted-tree alerts are **de-duplicated** so they don't repeat for the same state.
+
+Guest-facing emails are event-branded (title, host, accent colour), escape all
+guest-provided text, and **never** include invite tree names or check-in tokens.
+
+### Communications console (`/admin/communications`)
+
+Shows the email backend status, the reminder audience with counts, a live email
+preview (sandboxed), the manual **send reminder** action (owner/admin), and a
+recent delivery log. **Viewers can view but cannot send or resend.** Every attempt
+is recorded in a dedicated `communication_logs` table (type, recipient, status,
+provider, `provider_message_id`, short sanitized error) — no secrets, no message
+bodies, no full provider responses.
+
+---
+
 ## Project structure
 
 ```
@@ -256,7 +319,7 @@ RSVP60/
 ├── backend/                  # FastAPI app
 │   ├── Dockerfile
 │   ├── alembic.ini           # Alembic config (DB URL comes from settings)
-│   ├── migrations/           # Alembic env + versions/0001…0004_rsvp_check_in
+│   ├── migrations/           # Alembic env + versions/0001…0005_guest_communications
 │   ├── uploads/              # local flyer storage (git-ignored; local backend)
 │   ├── app/
 │   │   ├── main.py           # entrypoint: runtime validation, health, /media mount
@@ -406,10 +469,16 @@ convenience.)
 | `SUPABASE_URL`                   | _(empty)_                     | Supabase project URL (required when `STORAGE_BACKEND=supabase`).    |
 | `SUPABASE_SERVICE_ROLE_KEY`      | _(empty)_                     | Supabase **service role** key — **server-only secret**, never exposed to the frontend. Required for the supabase backend. |
 | `SUPABASE_STORAGE_BUCKET`        | `flyers`                      | Supabase Storage bucket name (create it as a **public** bucket).   |
+| `EMAIL_BACKEND`                  | `console`                     | `console` (log only, default) or `resend` (live transactional email). |
+| `EMAIL_FROM_ADDRESS`             | _(empty)_                     | From-address for outgoing mail. Required for a live provider.       |
+| `EMAIL_FROM_NAME`                | `RSVP60`                      | Display name on outgoing mail.                                      |
+| `RESEND_API_KEY`                 | _(empty)_                     | Resend API key — **server-only secret**, never exposed to the frontend, never logged. Required when `EMAIL_BACKEND=resend`. |
+| `EMAIL_TIMEOUT_SECONDS`          | `10`                          | Hard cap on a single synchronous provider send.                    |
 
 When `STORAGE_BACKEND=supabase`, the app **refuses to boot** unless `SUPABASE_URL`
-and `SUPABASE_SERVICE_ROLE_KEY` are set. The API port is a uvicorn flag
-(`--port 8010`), not an env var.
+and `SUPABASE_SERVICE_ROLE_KEY` are set. Likewise, in production a live
+`EMAIL_BACKEND` (e.g. `resend`) requires its credentials or the app refuses to
+boot. The API port is a uvicorn flag (`--port 8010`), not an env var.
 
 ### Frontend (`frontend/.env.local`)
 
@@ -466,8 +535,23 @@ release/recalculation on update, accepted-vs-waitlisted seat counting, admin
 promotion seat validation, and per-event CSV export — plus later phases: event
 branding/flyer upload/readiness/deadline auto-close (Phase 2); admin
 roles/management (Phase 3); login rate limiting, password policy and audit
-access (Phase 3.5); and event-day check-in, seat-bounded check-in, and the guest
-manifest (Phase 4).
+access (Phase 3.5); event-day check-in, seat-bounded check-in, and the guest
+manifest (Phase 4); race-safe check-in and door operations (Phase 4.5); and
+guest communications — consent-gated confirmations, notify-on-status-change,
+event-scoped reminders, host-alert de-duplication and no-secret comms logs
+(Phase 5).
+
+Two focused unit suites (standard-library `unittest`, no live services) round
+this out:
+
+```bash
+cd backend
+python -m unittest tests.test_email     # email templates + service (mocked provider)
+python -m unittest tests.test_storage   # flyer storage abstraction
+```
+
+Both the smoke suite and CI run with `EMAIL_BACKEND=console`, so **no real email
+is ever sent** during testing.
 
 ---
 
@@ -579,12 +663,17 @@ commands directly.
 - `GET   /api/admin/events/{id}/readiness` — pre-share checklist
 - `GET   /api/admin/invite-trees?event_id=…` · `POST` · `PATCH /api/admin/invite-trees/{id}`
 - `GET   /api/admin/rsvps?event_id=…` (filters: `status`, `invite_tree_id`, `search`)
-- `PATCH /api/admin/rsvps/{id}`
+- `PATCH /api/admin/rsvps/{id}` (optional `?notify=true` emails the guest on a status change)
+- `POST  /api/admin/rsvps/{id}/resend-confirmation` (editor)
 - `GET   /api/admin/rsvps/export?event_id=…` — CSV (with checked-in columns)
 - `GET   /api/admin/check-in/search?event_id=…` (`q` or `token`; any active admin)
 - `POST  /api/admin/rsvps/{id}/check-in` · `…/undo-check-in` · `PATCH …/checked-in-seats` (editor)
 - `GET   /api/admin/guest-manifest?event_id=…` — per-tree + grand totals (any active admin)
 - `GET   /api/admin/dashboard/summary?event_id=…` · `GET /api/admin/dashboard/charts?event_id=…`
+- `GET   /api/admin/communications/status?event_id=…` — email backend + audience + recent log (any active admin)
+- `GET   /api/admin/communications/reminder/preview?event_id=…&exclude_checked_in=…` — audience + rendered preview
+- `POST  /api/admin/communications/reminder/send?event_id=…` — bulk reminder (editor; `confirm_resend` guards repeats)
+- `GET   /api/admin/communications/logs?event_id=…` — event-scoped delivery log (any active admin)
 
 ---
 
@@ -672,9 +761,14 @@ A typical production layout: **Vercel** (frontend) + **Render/Railway/Fly.io**
   does not enforce tree capacity at the door.
 - Duplicate protection is one RSVP per **phone number per event**; guests update
   their RSVP by re-submitting with the same phone number.
-- No email/SMS notifications, QR **check-in** (QR **generation** for invite links
-  is supported), public self-signup, or billing/multi-org features (intentionally
-  out of scope for this phase).
+- **Email** is transactional-only and consent-gated (Phase 5). Sends are
+  **synchronous** with a timeout (fine for one-off confirmations and modest
+  reminder batches) — there is **no background scheduler/queue**; reminders are a
+  deliberate manual admin action. There is no SMS, no automated WhatsApp, no
+  open/click/bounce tracking, and no self-service password reset. The
+  exhausted-tree host alert fires **once per tree** (it does not re-arm if the
+  tree frees up and fills again). No public self-signup or billing/multi-org
+  features (intentionally out of scope).
 - Flyer uploads use the **local** storage backend by default; those files live on
   the container disk (persisted via a Docker volume in dev). Use the **Supabase**
   storage backend in production so images survive redeploys and scale across

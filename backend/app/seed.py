@@ -107,6 +107,9 @@ def seed() -> None:
             flyer_url="",
             rsvp_deadline=datetime.utcnow().replace(microsecond=0) + timedelta(days=30),
             status="active",
+            host_notification_email="host@example.com",
+            notify_tree_exhausted=True,
+            notify_waitlisted_rsvp=True,
         )
         db.add(event)
         db.flush()
@@ -177,6 +180,7 @@ def seed() -> None:
                 full_name=name,
                 phone=phone,
                 email=email,
+                email_opt_in=bool(email),
                 attendance_status="attending" if attending else "declined",
                 rsvp_status=rstatus,
                 seats_requested=seats,
@@ -247,6 +251,7 @@ def seed() -> None:
                     full_name=name,
                     phone=phone,
                     email=email,
+                    email_opt_in=bool(email),
                     attendance_status="attending" if attending else "declined",
                     rsvp_status=rstatus,
                     seats_requested=seats,

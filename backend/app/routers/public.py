@@ -1,5 +1,6 @@
 """Public, unauthenticated guest invite + RSVP endpoints."""
 
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -7,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..email import service as email_service
 from ..models import InviteTree, Rsvp
 from ..schemas import (
     EventPublic,
@@ -23,6 +25,8 @@ from ..seat_logic import (
 )
 from ..storage import resolve_flyer_url
 from ..utils import normalize_phone
+
+logger = logging.getLogger("rsvp60")
 
 router = APIRouter(prefix="/api/invites", tags=["public"])
 
@@ -106,6 +110,8 @@ def submit_rsvp(
         )
     attending = payload.attending
     requested = payload.seats_requested if attending else 0
+    # Consent is only meaningful when an email was actually supplied.
+    email_opt_in = bool(payload.email and payload.email_opt_in)
 
     # Duplicate protection: one RSVP per phone number per event.
     existing = db.execute(
@@ -126,6 +132,7 @@ def submit_rsvp(
         existing.invite_tree_id = tree.id
         existing.full_name = payload.full_name.strip()
         existing.email = payload.email
+        existing.email_opt_in = email_opt_in
         existing.attendance_status = "attending" if attending else "declined"
         existing.rsvp_status = new_status
         existing.seats_requested = seats_to_store
@@ -140,6 +147,7 @@ def submit_rsvp(
             full_name=payload.full_name.strip(),
             phone=phone,
             email=payload.email,
+            email_opt_in=email_opt_in,
             attendance_status="attending" if attending else "declined",
             rsvp_status=new_status,
             seats_requested=seats_to_store,
@@ -161,9 +169,26 @@ def submit_rsvp(
         "declined": "Thank you for letting us know. You'll be missed!",
     }
 
-    return RsvpCreateResponse(
+    response = RsvpCreateResponse(
         rsvp=RsvpPublicOut.model_validate(rsvp),
         status=new_status,
         updated=updated,
         message=messages.get(new_status, "Your RSVP has been received."),
     )
+
+    # --- Email side effects (best-effort; never affect the response above) ---
+    # The RSVP is already committed; a delivery hiccup can't roll it back.
+    try:
+        event = tree.event
+        email_service.send_rsvp_confirmation(db, rsvp, event)
+        if new_status == "waitlisted":
+            email_service.send_host_alert(
+                db, event, "host_waitlisted_rsvp",
+                {"guest_name": rsvp.full_name, "seats": seats_to_store},
+                rsvp_id=rsvp.id,
+            )
+        email_service.maybe_alert_tree_exhausted(db, tree, event)
+    except Exception:  # pragma: no cover - defensive; guest never sees this
+        logger.exception("RSVP email side effects failed for rsvp=%s", rsvp.id)
+
+    return response

@@ -70,6 +70,12 @@ class Event(Base):
     background_preset: Mapped[str] = mapped_column(String(30), default="")
     # draft | active | closed | archived
     status: Mapped[str] = mapped_column(String(20), default="active")
+    # --- Host / admin email alerts (Phase 5) ----------------------------- #
+    # Optional address that receives host alerts (tree exhausted, waitlisted
+    # RSVP, bulk reminder completed). Blank disables host alerts for the event.
+    host_notification_email: Mapped[str] = mapped_column(String(255), default="")
+    notify_tree_exhausted: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify_waitlisted_rsvp: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
@@ -143,6 +149,15 @@ class Rsvp(Base):
     seats_requested: Mapped[int] = mapped_column(Integer, default=1)
     note_to_celebrant: Mapped[str | None] = mapped_column(Text, nullable=True)
     dietary_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # --- Email communications (Phase 5) ---------------------------------- #
+    # Consent: the guest agreed to receive RSVP confirmation + important updates
+    # for THIS event. No marketing. Only ever true when an email was supplied.
+    email_opt_in: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Timestamps guard against duplicate sends of each transactional email.
+    confirmation_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    status_email_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    check_in_email_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Event-day check-in. checked_in_at is the source of truth for "checked in".
     checked_in_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     checked_in_by_admin_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -171,3 +186,40 @@ class AuditLog(Base):
     entity_id: Mapped[str] = mapped_column(String(32), default="")
     meta: Mapped[str] = mapped_column("metadata", Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class CommunicationLog(Base):
+    """One row per email delivery attempt (or deliberate skip).
+
+    Deliberately narrow: it records *that* a message was attempted, to whom and
+    with what outcome — never API keys, full provider responses or the message
+    body. ``error_summary`` is a short, sanitized reason only.
+    """
+
+    __tablename__ = "communication_logs"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_uuid)
+    event_id: Mapped[str] = mapped_column(
+        ForeignKey("events.id"), nullable=False, index=True
+    )
+    # Guest RSVP this relates to (null for host alerts / bulk summaries).
+    rsvp_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    # Invite tree this relates to (null unless it's a tree-scoped host alert).
+    # Used to de-duplicate "tree exhausted" alerts.
+    invite_tree_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # rsvp_confirmation | rsvp_status_update | event_reminder |
+    # check_in_acknowledgement | host_tree_exhausted | host_waitlisted_rsvp |
+    # host_reminder_complete
+    communication_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    channel: Mapped[str] = mapped_column(String(20), default="email")
+    recipient: Mapped[str] = mapped_column(String(255), default="")
+    provider: Mapped[str] = mapped_column(String(30), default="")
+    # pending | sent | failed | skipped
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    provider_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    error_summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    meta: Mapped[str] = mapped_column("metadata", Text, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, index=True
+    )

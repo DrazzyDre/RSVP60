@@ -29,6 +29,7 @@ export function RsvpForm({
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [emailOptIn, setEmailOptIn] = useState(false);
   const [note, setNote] = useState("");
   const [dietary, setDietary] = useState("");
 
@@ -61,6 +62,7 @@ export function RsvpForm({
           seats_requested: attending ? seats : 1,
           note_to_celebrant: note.trim() || null,
           dietary_note: dietary.trim() || null,
+          email_opt_in: Boolean(email.trim()) && emailOptIn,
         }
       );
       setResult(res);
@@ -185,6 +187,23 @@ export function RsvpForm({
           placeholder="you@example.com"
           autoComplete="email"
         />
+        <label
+          className={cn(
+            "mt-1 flex cursor-pointer items-start gap-2 text-sm",
+            email.trim() ? "text-foreground" : "text-muted-foreground"
+          )}
+        >
+          <input
+            type="checkbox"
+            checked={Boolean(email.trim()) && emailOptIn}
+            disabled={!email.trim()}
+            onChange={(e) => setEmailOptIn(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-input accent-royal disabled:opacity-50"
+          />
+          <span>
+            Receive RSVP confirmation and important updates about this event.
+          </span>
+        </label>
       </div>
 
       <div className="space-y-2">

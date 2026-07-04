@@ -157,6 +157,9 @@ class RsvpCreate(BaseModel):
     seats_requested: int = Field(1, ge=1, le=3)
     note_to_celebrant: str | None = Field(None, max_length=2000)
     dietary_note: str | None = Field(None, max_length=2000)
+    # Consent to receive RSVP confirmation + important updates for THIS event.
+    # Only meaningful when an email is supplied; never marketing.
+    email_opt_in: bool = False
 
 
 class RsvpPublicOut(BaseModel):
@@ -212,6 +215,16 @@ def _coerce_accent(v: str | None) -> str:
     return ""
 
 
+# Loose email shape for the OPTIONAL host-alert address. Empty disables alerts;
+# anything that isn't email-shaped is dropped rather than rejecting the save.
+_EMAILISH = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _coerce_host_email(v: str | None) -> str:
+    v = (v or "").strip()
+    return v.lower() if _EMAILISH.match(v) else ""
+
+
 class EventBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     event_type: str = Field("other")
@@ -235,6 +248,10 @@ class EventBase(BaseModel):
     accent_color: str = Field("", max_length=20)
     background_preset: str = Field("")
     status: str = Field("active")
+    # Host / admin email alerts.
+    host_notification_email: str = Field("", max_length=255)
+    notify_tree_exhausted: bool = True
+    notify_waitlisted_rsvp: bool = False
 
     @field_validator("event_type")
     @classmethod
@@ -262,6 +279,11 @@ class EventBase(BaseModel):
         if v not in EVENT_STATUSES:
             raise ValueError(f"status must be one of {EVENT_STATUSES}")
         return v
+
+    @field_validator("host_notification_email")
+    @classmethod
+    def _valid_host_email(cls, v: str) -> str:
+        return _coerce_host_email(v)
 
 
 class EventCreate(EventBase):
@@ -292,11 +314,19 @@ class EventUpdate(BaseModel):
     accent_color: str | None = None
     background_preset: str | None = None
     status: str | None = None
+    host_notification_email: str | None = None
+    notify_tree_exhausted: bool | None = None
+    notify_waitlisted_rsvp: bool | None = None
 
     @field_validator("theme_preset")
     @classmethod
     def _valid_theme(cls, v):
         return _coerce_theme(v) if v is not None else None
+
+    @field_validator("host_notification_email")
+    @classmethod
+    def _valid_host_email(cls, v):
+        return _coerce_host_email(v) if v is not None else None
 
     @field_validator("background_preset")
     @classmethod
@@ -357,6 +387,9 @@ class EventAdminOut(BaseModel):
     accent_color: str
     background_preset: str
     status: str
+    host_notification_email: str = ""
+    notify_tree_exhausted: bool = True
+    notify_waitlisted_rsvp: bool = False
     tree_count: int = 0
     rsvp_count: int = 0
     created_at: datetime
@@ -413,6 +446,12 @@ class RsvpAdminOut(BaseModel):
     seats_requested: int
     note_to_celebrant: str | None
     dietary_note: str | None
+    # Email communications (Phase 5).
+    email_opt_in: bool = False
+    confirmation_sent_at: datetime | None = None
+    reminder_sent_at: datetime | None = None
+    status_email_sent_at: datetime | None = None
+    check_in_email_sent_at: datetime | None = None
     # Event-day check-in.
     checked_in_at: datetime | None = None
     checked_in_seats: int | None = None
@@ -519,3 +558,89 @@ class DashboardCharts(BaseModel):
     rsvp_status_breakdown: list[StatusBreakdownPoint]
     rsvps_over_time: list[TrendPoint]
     capacity: dict[str, int]
+
+
+# --------------------------------------------------------------------------- #
+# Admin — guest communications (Phase 5)
+# --------------------------------------------------------------------------- #
+class EmailBackendStatus(BaseModel):
+    backend: str  # console | resend
+    is_live_provider: bool
+    configured: bool
+    from_address: str
+    from_name: str
+
+
+class CommunicationLogOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    event_id: str
+    rsvp_id: str | None = None
+    communication_type: str
+    channel: str
+    recipient: str
+    provider: str
+    status: str
+    provider_message_id: str | None = None
+    error_summary: str | None = None
+    sent_at: datetime | None = None
+    created_at: datetime
+
+
+class CommunicationLogPage(BaseModel):
+    items: list[CommunicationLogOut]
+    total: int
+
+
+class ReminderRecipient(BaseModel):
+    full_name: str
+    email: str
+    seats_requested: int
+    checked_in: bool
+
+
+class EmailPreview(BaseModel):
+    subject: str
+    html: str
+    text: str
+
+
+class ReminderAudience(BaseModel):
+    eligible_count: int
+    total_accepted: int
+    accepted_without_email: int
+    accepted_not_opted_in: int
+    checked_in_eligible: int
+    exclude_checked_in: bool
+    last_reminder_sent_at: datetime | None = None
+    sample: list[ReminderRecipient]
+    preview: EmailPreview | None = None
+
+
+class CommunicationsStatus(BaseModel):
+    event_id: str
+    event_name: str
+    email: EmailBackendStatus
+    host_notification_email: str
+    notify_tree_exhausted: bool
+    notify_waitlisted_rsvp: bool
+    eligible_reminder_count: int
+    last_reminder_sent_at: datetime | None = None
+    recent: list[CommunicationLogOut]
+
+
+class ReminderSendRequest(BaseModel):
+    exclude_checked_in: bool = False
+    confirm_resend: bool = False
+
+
+class ReminderSendResult(BaseModel):
+    sent: int
+    failed: int
+    skipped: int
+    message: str
+
+
+class NotifyResult(BaseModel):
+    status: str  # sent | skipped | failed | not_attempted
+    detail: str

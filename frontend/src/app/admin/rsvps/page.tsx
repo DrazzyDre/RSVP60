@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Download, Loader2, Search } from "lucide-react";
+import { Check, Download, Loader2, Mail, MailCheck, Search } from "lucide-react";
 import { API_URL, api, ApiError, getToken } from "@/lib/api";
-import type { InviteTree, RsvpAdmin, RsvpStatus } from "@/lib/types";
+import type { InviteTree, NotifyResult, RsvpAdmin, RsvpStatus } from "@/lib/types";
 import { useEvents } from "@/components/admin/event-context";
 import { useCanEdit } from "@/components/admin/auth-context";
 import { EmptyEventState } from "@/components/admin/EmptyEventState";
@@ -29,6 +29,9 @@ export default function RsvpsPage() {
   const [treeFilter, setTreeFilter] = useState("");
   const [search, setSearch] = useState("");
   const [exporting, setExporting] = useState(false);
+  // When on, changing a guest's status emails them (if they opted in).
+  const [notifyOnChange, setNotifyOnChange] = useState(false);
+  const [resendingId, setResendingId] = useState<string | null>(null);
 
   // Honour a ?status= deep link (e.g. from the dashboard stat cards).
   useEffect(() => {
@@ -71,10 +74,29 @@ export default function RsvpsPage() {
 
   async function updateStatus(id: string, status: RsvpStatus) {
     try {
-      await api.patch(`/api/admin/rsvps/${id}`, { rsvp_status: status });
+      await api.patch(
+        `/api/admin/rsvps/${id}?notify=${notifyOnChange}`,
+        { rsvp_status: status }
+      );
       load();
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Update failed.");
+    }
+  }
+
+  async function resendConfirmation(id: string) {
+    setResendingId(id);
+    try {
+      const res = await api.post<NotifyResult>(
+        `/api/admin/rsvps/${id}/resend-confirmation`,
+        {},
+        true
+      );
+      alert(res.detail);
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not resend.");
+    } finally {
+      setResendingId(null);
     }
   }
 
@@ -112,14 +134,30 @@ export default function RsvpsPage() {
               : "All guest responses."}
           </p>
         </div>
-        <Button variant="outline" onClick={exportCsv} disabled={exporting}>
-          {exporting ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Download className="h-4 w-4" />
+        <div className="flex flex-wrap items-center gap-3">
+          {canEdit && (
+            <label
+              className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground"
+              title="Email the guest when you change their status (if they opted in)"
+            >
+              <input
+                type="checkbox"
+                checked={notifyOnChange}
+                onChange={(e) => setNotifyOnChange(e.target.checked)}
+                className="h-4 w-4 rounded border-input accent-royal"
+              />
+              <Mail className="h-4 w-4" /> Notify guest on status change
+            </label>
           )}
-          Export CSV
-        </Button>
+          <Button variant="outline" onClick={exportCsv} disabled={exporting}>
+            {exporting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            Export CSV
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -189,7 +227,17 @@ export default function RsvpsPage() {
                         <p className="font-medium text-foreground">{r.full_name}</p>
                         <p className="text-xs text-muted-foreground">{r.phone}</p>
                         {r.email && (
-                          <p className="text-xs text-muted-foreground">{r.email}</p>
+                          <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                            {r.email}
+                            {r.email_opt_in && (
+                              <span
+                                className="inline-flex items-center gap-0.5 text-green-700"
+                                title="Opted in to email updates"
+                              >
+                                <MailCheck className="h-3 w-3" /> opted in
+                              </span>
+                            )}
+                          </p>
                         )}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
@@ -207,19 +255,37 @@ export default function RsvpsPage() {
                       </td>
                       {canEdit && (
                         <td className="px-4 py-3">
-                          <Select
-                            value={r.rsvp_status}
-                            onChange={(e) =>
-                              updateStatus(r.id, e.target.value as RsvpStatus)
-                            }
-                            className="h-9 w-36 text-sm"
-                          >
-                            {STATUSES.map((s) => (
-                              <option key={s} value={s} className="capitalize">
-                                {s}
-                              </option>
-                            ))}
-                          </Select>
+                          <div className="flex items-center gap-1.5">
+                            <Select
+                              value={r.rsvp_status}
+                              onChange={(e) =>
+                                updateStatus(r.id, e.target.value as RsvpStatus)
+                              }
+                              className="h-9 w-36 text-sm"
+                            >
+                              {STATUSES.map((s) => (
+                                <option key={s} value={s} className="capitalize">
+                                  {s}
+                                </option>
+                              ))}
+                            </Select>
+                            {r.email && r.email_opt_in && (
+                              <button
+                                type="button"
+                                onClick={() => resendConfirmation(r.id)}
+                                disabled={resendingId === r.id}
+                                title="Resend confirmation email"
+                                aria-label="Resend confirmation email"
+                                className="flex h-9 w-9 items-center justify-center rounded-md border border-input text-muted-foreground hover:bg-muted disabled:opacity-50"
+                              >
+                                {resendingId === r.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Mail className="h-4 w-4" />
+                                )}
+                              </button>
+                            )}
+                          </div>
                         </td>
                       )}
                     </tr>
