@@ -43,6 +43,12 @@ Phase 4 additions (event-day check-in + manifest):
   * check-in token search and guest manifest are event-scoped; audit is recorded
   * public invite never exposes check-in fields
 
+Phase 4.5 additions (door operations polish):
+  * unknown/invalid check-in token resolves to no guest (no leak)
+  * token-flow check-in: viewer can look up but not check in; editor can
+  * duplicate check-in reliably 409s and never overwrites the original record
+  * cancelled RSVPs are ineligible; manifest stays event-scoped
+
 Requires the owner/admin/viewer accounts created by app.seed.
 Uses only the Python standard library (no extra deps).
 """
@@ -560,6 +566,56 @@ def main() -> int:
 
     _, pub4 = jget(f"/api/invites/{FAM_TOKEN}")
     check("public invite hides check-in fields", "check_in_token" not in json.dumps(pub4) and "checked_in" not in json.dumps(pub4))
+
+    # --- Phase 4.5: door operations polish -------------------------------
+    # Unknown / invalid token resolves to no guest (friendly empty, no leak).
+    _, badtok = jget(
+        f"/api/admin/check-in/search?event_id={B}&token=not-a-real-token-xyz", token
+    )
+    check("unknown check-in token returns no guest", badtok == [], str(badtok)[:80])
+
+    # Token-flow check-in on a fresh accepted guest (owner/admin path).
+    fresh = next(
+        (r for r in roster if r["id"] != target["id"] and not r["checked_in_at"]), None
+    )
+    check("a fresh accepted guest exists for token flow", fresh is not None)
+    if fresh:
+        ftok = fresh["check_in_token"]
+        _, byf = jget(f"/api/admin/check-in/search?event_id={B}&token={ftok}", token)
+        check("token flow resolves the fresh guest", len(byf) == 1 and byf[0]["id"] == fresh["id"])
+        _, crossf = jget(f"/api/admin/check-in/search?event_id={W}&token={ftok}", token)
+        check("token flow stays event-scoped", crossf == [])
+        # Viewer can look up via token but cannot check in through it.
+        s, _ = get(f"/api/admin/check-in/search?event_id={B}&token={ftok}", vtok)
+        check("viewer can token-search (200)", s == 200, str(s))
+        s, _ = post(f"/api/admin/rsvps/{fresh['id']}/check-in", {}, vtok)
+        check("viewer cannot check in via token flow (403)", s == 403, str(s))
+        # Owner/admin checks in via the token flow.
+        s, raw = post(f"/api/admin/rsvps/{fresh['id']}/check-in", {}, token)
+        check("editor checks in via token flow (200)", s == 200, f"{s} {raw[:80]}")
+        first45 = json.loads(raw) if s == 200 else {}
+        # Conditional guard: a second attempt cannot double-succeed or overwrite.
+        s, _ = post(f"/api/admin/rsvps/{fresh['id']}/check-in", {"seats": 1}, token)
+        check("duplicate check-in reliably blocked (409)", s == 409, str(s))
+        _, again45 = jget(f"/api/admin/check-in/search?event_id={B}&token={ftok}", token)
+        check(
+            "duplicate attempt leaves the original check-in intact",
+            again45[0]["checked_in_at"] == first45.get("checked_in_at")
+            and again45[0]["checked_in_by"] == first45.get("checked_in_by")
+            and again45[0]["checked_in_seats"] == first45.get("checked_in_seats"),
+        )
+
+    # Cancelled RSVPs are not eligible for check-in.
+    _, acc45 = jget(f"/api/admin/rsvps?event_id={B}&status=accepted", token)
+    cancel_target = next((r for r in acc45 if not r["checked_in_at"]), None)
+    if cancel_target:
+        patch(f"/api/admin/rsvps/{cancel_target['id']}", {"rsvp_status": "cancelled"}, token)
+        s, _ = post(f"/api/admin/rsvps/{cancel_target['id']}/check-in", {}, token)
+        check("cancelled RSVP cannot be checked in (400)", s == 400, str(s))
+
+    # Manifest stays scoped to the selected event after the 4.5 changes.
+    _, man45 = jget(f"/api/admin/guest-manifest?event_id={B}", token)
+    check("manifest still scoped to selected event", man45["event_id"] == B)
 
     # --- Phase 3.5: login rate limiting (run last) -----------------------
     brute = {"email": "bruteforce@rsvp60.com", "password": "wrongwrong"}
