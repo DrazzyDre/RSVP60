@@ -695,9 +695,10 @@ A typical production layout: **Vercel** (frontend) + **Render/Railway/Fly.io**
 (backend) + **Supabase** (Postgres + Storage) + **Resend** (email). A full guide —
 env reference, live-integration checklists (Postgres/Storage/Resend), a
 post-deploy smoke checklist, and backup/rollback procedures — lives in
-**[DEPLOYMENT.md](DEPLOYMENT.md)**. Ready-made config: **`render.yaml`** (Render
-blueprint), **`backend/railway.json`** (Railway), and **`backend/scripts/start.sh`**
-(migrate-then-serve start command).
+**[DEPLOYMENT.md](DEPLOYMENT.md)**, with a one-page launch gate in
+**[GO_LIVE_CHECKLIST.md](GO_LIVE_CHECKLIST.md)**. Ready-made config:
+**`render.yaml`** (Render blueprint), **`backend/railway.json`** (Railway), and
+**`backend/scripts/start.sh`** (migrate-then-serve start command).
 
 **Supabase (database)**
 1. Create a project and copy the connection string.
@@ -718,7 +719,9 @@ blueprint), **`backend/railway.json`** (Railway), and **`backend/scripts/start.s
   **refuses to boot** in production with an unsafe secret or localhost/blank
   `SITE_URL`/`CORS_ORIGINS`. Verify first: `python -m scripts.validate_prod_config`.
 - Do **not** run `app.seed` against production; create your first event via the
-  admin UI. (Provision the first owner via a one-off script — see DEPLOYMENT.md §7.)
+  admin UI. Provision the first owner with the guarded bootstrap command
+  **`python -m app.bootstrap_owner`** (creates an owner only when none exists,
+  never overwrites, no seed/SQL — see DEPLOYMENT.md §7).
 
 **Flyer storage (production)**
 - Set `STORAGE_BACKEND=supabase`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,

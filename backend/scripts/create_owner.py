@@ -1,9 +1,13 @@
-"""Bootstrap (or promote) an owner account.
+"""Create or promote an owner account (local/dev convenience).
 
 The very first owner cannot be created from inside the app — admin-account
 management is owner-only — so it is created directly at the database level.
-This is the local/dev counterpart of the production "create the first owner"
-step in DEPLOYMENT.md §7.
+
+For PRODUCTION first-owner provisioning, prefer the guarded, create-only
+``python -m app.bootstrap_owner`` (it refuses to overwrite an existing owner or
+a taken email). This helper is a dev convenience that can also *promote* an
+existing admin or reset a password — handy locally, but it can overwrite, so it
+is not the production-safe path.
 
 It changes exactly one ``admins`` row and never touches event / RSVP data.
 

@@ -29,6 +29,28 @@ integration checklists and recovery procedures.
    origin and redeploy the backend. Create the first owner (see §7).
 6. Run the **production smoke checklist** (§6).
 
+### Controlled pilot go-live workflow (staging first)
+
+Do a **pilot** pass in a dedicated staging project (name it *RSVP60 Pilot* /
+*RSVP60 Staging*) with **synthetic data only** before treating the system as
+production. Use the one-page gate in [`GO_LIVE_CHECKLIST.md`](./GO_LIVE_CHECKLIST.md).
+
+1. Create/configure the pilot Supabase project (Postgres).
+2. Configure the Supabase Storage `flyers` bucket (public).
+3. Configure and verify the Resend sender/domain.
+4. Deploy the backend.
+5. Apply Alembic migrations (`alembic upgrade head` — the start command does this).
+6. Confirm `GET /api/health` → `200`.
+7. Confirm `GET /api/ready` → `200`.
+8. Bootstrap the first owner — `python -m app.bootstrap_owner` (§7).
+9. Deploy the frontend (Vercel).
+10. Cross-wire `SITE_URL`, `CORS_ORIGINS` and `NEXT_PUBLIC_API_URL` to the real origins.
+11. Redeploy the affected services.
+12. Log in as owner.
+13. Create a synthetic pilot event through the UI (e.g. *RSVP60 Pilot Celebration*).
+14. Run the full pilot smoke scenario (§6 + the lifecycle in the phase brief).
+15. Archive/remove the pilot records when validation is complete (§14).
+
 ---
 
 ## 2. Environment variables
@@ -143,10 +165,27 @@ emails only went to your own approved test address.
 
 ## 7. Creating the first owner (no seed in prod)
 
-Since seeding is disabled in production, create the initial owner directly, e.g.
-a one-off script/console on the backend host that inserts one `Admin` row with a
-hashed password (`app.security.hash_password`) and `role="owner"`. Rotate the
-password immediately after first login. Do **not** reuse demo credentials.
+Since seeding is disabled in production, create the initial owner with the
+**guarded bootstrap command** — no manual SQL, no seed, no table changes:
+
+```bash
+cd backend
+# Interactive (password is prompted, hidden, and never echoed/logged):
+python -m app.bootstrap_owner --email you@your-domain.com --name "Your Name"
+
+# Non-interactive (CI/console) — value is visible in shell history, so rotate after:
+BOOTSTRAP_OWNER_EMAIL=you@your-domain.com \
+BOOTSTRAP_OWNER_NAME="Your Name" \
+BOOTSTRAP_OWNER_PASSWORD='choose-a-strong-one' \
+  python -m app.bootstrap_owner
+```
+
+It **creates an owner only when none exists**, refuses to overwrite an existing
+owner or a taken email, enforces the password policy, hashes with the app's auth
+system, writes an `owner_bootstrapped` audit record, and works on Postgres and
+SQLite. Run it against the deployed database **after** migrations succeed. Rotate
+the password after first login if it was supplied non-interactively. Do **not**
+reuse demo credentials.
 
 ---
 
@@ -165,6 +204,10 @@ Never point destructive commands at live data.
       indexes exist (`\d communication_logs` in psql).
 - [ ] Event scoping holds: RSVPs/trees/logs for event A never surface under event B.
 - [ ] `GET /api/ready` returns `200` against this database.
+- [ ] First-owner bootstrap works — `python -m app.bootstrap_owner` creates the
+      owner, then a second run **refuses** ("an owner already exists").
+- [ ] Do **not** run `python -m app.seed` against this database — create pilot
+      records through the app/admin UI after the first owner is provisioned.
 
 ---
 
@@ -231,6 +274,30 @@ log drain. No paid monitoring provider is required for this phase.
   `alembic downgrade <prev>` then redeploy. Never hand-edit the production schema
   out-of-band; keep Alembic the source of truth.
 - **Never** run seed/reset against production (§4).
+
+---
+
+## 13a. Pilot data cleanup
+
+After a pilot/staging validation, clean up **synthetic** records safely — never
+with a "delete everything" command:
+
+- **Event** — set the pilot event's status to `archived` (or `closed`) from the
+  Events page. It stops accepting RSVPs and drops out of the active workflow while
+  its history is preserved.
+- **Test admins** — deactivate them from the owner-only Admins page (they can no
+  longer log in). Keep exactly one real owner.
+- **Test flyer objects** — remove the flyer from the pilot event (Event → Remove
+  flyer); for Supabase, confirm the object is gone in the bucket if storage tidiness
+  matters.
+- **Audit & communication logs** — retain by default (they are the record of what
+  happened). Only purge under a deliberate data-retention policy.
+
+**Not currently removable through the UI:** there is no hard-delete for events,
+RSVPs, invite trees, or admins (deactivate/archive only, by design). If a pilot
+project must be fully wiped, drop and recreate the *pilot* database at the
+infrastructure level (Supabase) — never against production — then re-run
+migrations and re-bootstrap the owner.
 
 ---
 
