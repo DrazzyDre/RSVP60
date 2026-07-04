@@ -6,12 +6,24 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 
 from .config import settings
 from .database import Base, engine
 from .routers import admin, communications, public
 from .storage import ensure_local_upload_dir
 
+
+def configure_logging() -> None:
+    """Structured-ish console logging. Never logs secrets (JWT/service-role/API
+    keys, passwords, auth headers) — those are kept out of every log call."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+
+configure_logging()
 logger = logging.getLogger("rsvp60")
 
 app = FastAPI(
@@ -37,8 +49,23 @@ if _local_upload_dir:
 
 @app.on_event("startup")
 def on_startup() -> None:
-    # Fail fast on unsafe production configuration.
-    settings.validate_runtime()
+    # Fail fast on unsafe production configuration. Log the failure clearly
+    # (without secrets) so a bad deploy is obvious in the platform logs.
+    try:
+        settings.validate_runtime()
+    except RuntimeError as exc:
+        logger.error("Startup configuration error: %s", exc)
+        raise
+
+    # Log the effective runtime mode + backends (never the credentials).
+    logger.info(
+        "RSVP60 starting: env=%s db=%s storage=%s email=%s trust_proxy=%s",
+        settings.app_env,
+        engine.dialect.name,
+        settings.storage_backend,
+        settings.email_backend_name,
+        settings.trust_proxy_headers,
+    )
 
     # Auto-create tables for local/dev convenience only. Production must run
     # Alembic migrations (`alembic upgrade head`) — never auto-create.
@@ -61,11 +88,33 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 @app.get("/health", tags=["health"])
 @app.get("/api/health", tags=["health"])
 def health() -> dict:
+    """Liveness: the process is up and serving. No dependencies checked.
+
+    Use this for the hosting platform's health check."""
     return {
         "status": "ok",
         "service": "rsvp60-api",
         "env": settings.app_env,
     }
+
+
+@app.get("/ready", tags=["health"])
+@app.get("/api/ready", tags=["health"])
+def ready() -> JSONResponse:
+    """Readiness: verifies database connectivity with a trivial query.
+
+    Returns 503 when the database is unavailable so a load balancer can hold
+    traffic until the DB is reachable. Never exposes connection details."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return JSONResponse({"status": "ready", "database": "ok"})
+    except Exception:
+        logger.exception("Readiness check failed: database unavailable")
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "database": "unavailable"},
+        )
 
 
 app.include_router(public.router)

@@ -1,0 +1,56 @@
+# Render blueprint for the RSVP60 backend (FastAPI).
+#
+# Frontend deploys to Vercel; the database + file storage use Supabase; email
+# uses Resend. This file provisions ONLY the API web service.
+#
+# Secrets (sync:false / generateValue) are set in the Render dashboard — never
+# committed here. After first deploy, set DATABASE_URL, SITE_URL, CORS_ORIGINS,
+# SUPABASE_*, EMAIL_FROM_ADDRESS and RESEND_API_KEY.
+services:
+  - type: web
+    name: rsvp60-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    autoDeploy: false
+    buildCommand: pip install -r requirements.txt
+    # start.sh runs `alembic upgrade head` then launches uvicorn on $PORT.
+    startCommand: bash scripts/start.sh
+    # Liveness probe — the process is up. (Readiness is /api/ready.)
+    healthCheckPath: /api/health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      # Render sets $PORT automatically; start.sh reads it.
+      - key: DATABASE_URL          # Supabase Postgres connection string
+        sync: false
+      - key: JWT_SECRET            # generate a strong secret automatically
+        generateValue: true
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "720"
+      - key: SITE_URL              # your Vercel frontend origin (https://…)
+        sync: false
+      - key: CORS_ORIGINS          # same frontend origin(s), comma-separated
+        sync: false
+      - key: TRUST_PROXY_HEADERS   # Render terminates TLS in front of the app
+        value: "true"
+      - key: STORAGE_BACKEND
+        value: supabase
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY   # server-only secret
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        value: flyers
+      - key: EMAIL_BACKEND
+        value: resend
+      - key: EMAIL_FROM_ADDRESS    # a verified Resend sender
+        sync: false
+      - key: EMAIL_FROM_NAME
+        value: RSVP60
+      - key: RESEND_API_KEY        # server-only secret
+        sync: false
+      - key: EMAIL_TIMEOUT_SECONDS
+        value: "10"

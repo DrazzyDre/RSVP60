@@ -56,6 +56,11 @@ Phase 5 additions (guest communications):
   * reminder audience is accepted+opted-in only; repeated send is guarded (409)
   * viewer can view comms but not send/resend; comms logs leak no provider secret
 
+Phase 5.5 additions (production readiness):
+  * /api/health (liveness) and /api/ready (DB connectivity) respond correctly
+  * admin/public payloads never expose storage/email/server secrets
+  * invite_url is absolute and carries its token (built from SITE_URL)
+
 Requires the owner/admin/viewer accounts created by app.seed.
 Uses only the Python standard library (no extra deps).
 """
@@ -752,6 +757,35 @@ def main() -> int:
               s == 200 and json.loads(rr)["status"] in ("sent", "skipped", "failed"), f"{s} {rr[:80]}")
         s, _ = post(f"/api/admin/rsvps/{caid}/resend-confirmation", {}, vtok)
         check("viewer cannot resend confirmation (403)", s == 403, str(s))
+
+    # --- Phase 5.5: production readiness + no-secret payloads -------------
+    s, health = jget("/api/health")
+    check("health endpoint ok", s == 200 and health.get("status") == "ok", f"{s}")
+    check("health reports env", "env" in health)
+    s, rdy = jget("/api/ready")
+    check("readiness endpoint ok (db reachable)", s == 200 and rdy.get("status") == "ready", f"{s} {rdy}")
+
+    # Neither admin nor public payloads leak storage/email/server secrets.
+    _, evraw = get(f"/api/admin/events/{B}", token)
+    ev_l = evraw.lower()
+    check(
+        "event payload exposes no provider secrets",
+        "service_role" not in ev_l and "resend_api_key" not in ev_l and "jwt_secret" not in ev_l,
+    )
+    _, pubraw = get(f"/api/invites/{FAM_TOKEN}")
+    pub_l = pubraw.lower()
+    check(
+        "public invite exposes no server config/secrets",
+        "service_role" not in pub_l and "cors_origins" not in pub_l and "jwt" not in pub_l,
+    )
+
+    # invite_url is absolute and carries the tree token (built from SITE_URL).
+    fam55 = tree_by_name(token, B, "Family")
+    check(
+        "invite_url is absolute and carries its token",
+        fam55["invite_url"].startswith("http") and fam55["token"] in fam55["invite_url"],
+        fam55.get("invite_url"),
+    )
 
     # --- Phase 3.5: login rate limiting (run last) -----------------------
     brute = {"email": "bruteforce@rsvp60.com", "password": "wrongwrong"}

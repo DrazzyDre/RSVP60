@@ -11,8 +11,6 @@ import html
 import re
 from datetime import datetime
 
-from ..config import settings
-
 BRAND_COLOR = "#1E2A6B"  # royal — default when the event has no accent colour.
 _HEX = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
@@ -43,7 +41,9 @@ def _invite_url(rsvp) -> str:
     token = getattr(tree, "token", "") if tree else ""
     if not token:
         return ""
-    return f"{settings.site_url.rstrip('/')}/invite/{token}"
+    from ..urls import invite_url
+
+    return invite_url(token)
 
 
 # --------------------------------------------------------------------------- #

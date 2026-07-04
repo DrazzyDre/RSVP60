@@ -1,12 +1,27 @@
 """Application configuration loaded from environment variables."""
 
 from functools import lru_cache
+from urllib.parse import urlparse
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # The default JWT secret shipped for local dev. It must NOT be used in
 # production — `Settings.validate_runtime()` refuses to boot if it is.
 UNSAFE_JWT_DEFAULT = "dev-super-secret-change-me"
+
+# Hostnames that must never be the public origin in production.
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", ""}
+
+
+def _is_local_origin(url: str) -> bool:
+    """True when a URL points at localhost / a loopback address (or is blank)."""
+    if not url or not url.strip():
+        return True
+    try:
+        host = urlparse(url.strip()).hostname or ""
+    except ValueError:
+        return True
+    return host.lower() in _LOCAL_HOSTS
 
 
 class Settings(BaseSettings):
@@ -72,6 +87,12 @@ class Settings(BaseSettings):
     login_rate_limit_max_failures: int = 5
     login_rate_limit_window_seconds: int = 300
 
+    # Trust the X-Forwarded-For header for the client IP (rate limiting). Enable
+    # ONLY when the app sits behind a single trusted reverse proxy that sets it
+    # (Render, Railway, Fly, a load balancer). When off, we use the direct
+    # socket peer (request.client.host). Never blindly trust arbitrary XFF.
+    trust_proxy_headers: bool = False
+
     @property
     def is_production(self) -> bool:
         return self.app_env.lower() == "production"
@@ -119,6 +140,34 @@ class Settings(BaseSettings):
                 "JWT_SECRET (e.g. `openssl rand -hex 32`) before running in "
                 "production (APP_ENV=production)."
             )
+        # Public links (invites, QR codes, emails) are built from SITE_URL. In
+        # production it must be the real frontend origin — never localhost, or
+        # guests receive dead links.
+        if self.is_production and _is_local_origin(self.site_url):
+            raise RuntimeError(
+                "SITE_URL must be your real public frontend origin in production "
+                "(e.g. https://your-app.vercel.app) — it builds invite, QR and "
+                "email links. It is currently unset or pointing at localhost."
+            )
+        # CORS must name explicit production origins (no wildcard, not only
+        # localhost) so the browser can actually reach the API.
+        origins = self.cors_origin_list
+        if self.is_production:
+            if not origins:
+                raise RuntimeError(
+                    "CORS_ORIGINS must list your frontend origin(s) in production "
+                    "(comma-separated, no wildcards)."
+                )
+            if "*" in origins:
+                raise RuntimeError(
+                    "CORS_ORIGINS must not use a wildcard '*' in production; list "
+                    "explicit frontend origins."
+                )
+            if all(_is_local_origin(o) for o in origins):
+                raise RuntimeError(
+                    "CORS_ORIGINS only contains localhost origins in production. "
+                    "Add your real deployed frontend origin(s)."
+                )
         if self.is_supabase_storage and not (
             self.supabase_url and self.supabase_service_role_key
         ):

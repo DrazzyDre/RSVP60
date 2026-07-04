@@ -16,6 +16,7 @@ swapping backends never touches business logic.
 
 from __future__ import annotations
 
+import logging
 import os
 import urllib.error
 import urllib.request
@@ -23,6 +24,8 @@ from pathlib import Path
 from typing import Protocol
 
 from .config import settings
+
+logger = logging.getLogger("rsvp60.storage")
 
 # Accepted image types -> canonical file extension.
 ALLOWED_IMAGE_TYPES: dict[str, str] = {
@@ -113,10 +116,13 @@ class SupabaseStorage:
             with urllib.request.urlopen(req):
                 pass
         except urllib.error.HTTPError as exc:  # pragma: no cover - network
+            # Log status only (never the request headers, which carry the key).
+            logger.warning("Supabase upload failed: HTTP %s", exc.code)
             raise StorageError(
                 f"Supabase upload failed ({exc.code}): {exc.read().decode()[:200]}"
             ) from exc
         except urllib.error.URLError as exc:  # pragma: no cover - network
+            logger.warning("Supabase upload error: %s", exc.reason)
             raise StorageError(f"Supabase upload failed: {exc.reason}") from exc
 
     def delete(self, key: str) -> None:

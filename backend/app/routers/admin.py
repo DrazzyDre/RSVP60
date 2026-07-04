@@ -75,6 +75,7 @@ from ..schemas import (
 )
 from ..security import create_access_token, hash_password, verify_password
 from ..seat_logic import computed_status, remaining_seats, used_seats
+from ..urls import invite_url as build_invite_url
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -630,7 +631,7 @@ def _serialize_tree(db: Session, tree: InviteTree) -> InviteTreeOut:
         used_seats=used,
         remaining_seats=remaining,
         rsvp_count=rsvp_count,
-        invite_url=f"{settings.site_url.rstrip('/')}/invite/{tree.token}",
+        invite_url=build_invite_url(tree.token),
         created_at=tree.created_at,
         updated_at=tree.updated_at,
     )

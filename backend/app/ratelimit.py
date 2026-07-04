@@ -15,6 +15,24 @@ from fastapi import HTTPException, Request, status
 from .config import settings
 
 
+def client_ip(request: Request) -> str:
+    """Best-effort client IP for rate-limit keys.
+
+    ``X-Forwarded-For`` is honoured ONLY when ``TRUST_PROXY_HEADERS`` is enabled
+    — i.e. when the app is known to sit behind a single trusted reverse proxy
+    (Render/Railway/Fly/LB) that sets it. In that case the original client is
+    the left-most entry. Otherwise, and always as a fallback, we use the direct
+    socket peer so a client can't spoof its IP with a forged header.
+    """
+    if settings.trust_proxy_headers:
+        forwarded = request.headers.get("x-forwarded-for", "")
+        if forwarded:
+            first = forwarded.split(",")[0].strip()
+            if first:
+                return first
+    return request.client.host if request.client else "unknown"
+
+
 class SlidingWindowRateLimiter:
     def __init__(self, max_requests: int, window_seconds: int):
         self.max_requests = max_requests
@@ -49,8 +67,7 @@ _rsvp_limiter = SlidingWindowRateLimiter(
 
 def rate_limit_rsvp(request: Request) -> None:
     """FastAPI dependency: throttle public RSVP submissions per client IP."""
-    client_ip = request.client.host if request.client else "unknown"
-    _rsvp_limiter.check(client_ip)
+    _rsvp_limiter.check(client_ip(request))
 
 
 class FailedAttemptLimiter:
@@ -106,8 +123,7 @@ _login_limiter = FailedAttemptLimiter(
 
 
 def _login_key(request: Request, email: str) -> str:
-    ip = request.client.host if request.client else "unknown"
-    return f"{ip}|{(email or '').strip().lower()}"
+    return f"{client_ip(request)}|{(email or '').strip().lower()}"
 
 
 def check_login_not_blocked(request: Request, email: str) -> None:

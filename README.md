@@ -462,6 +462,7 @@ convenience.)
 | `RSVP_RATE_LIMIT_WINDOW_SECONDS` | `60`                          | Rate-limit window in seconds.                                      |
 | `LOGIN_RATE_LIMIT_MAX_FAILURES`  | `5`                           | Failed admin logins (per IP+email) before a `429` block.           |
 | `LOGIN_RATE_LIMIT_WINDOW_SECONDS`| `300`                         | Window for counting failed logins, in seconds.                     |
+| `TRUST_PROXY_HEADERS`            | `false`                       | Trust `X-Forwarded-For` for the client IP. Enable **only** behind a trusted proxy (Render/Railway/LB). |
 | `STORAGE_BACKEND`                | `local`                       | `local` (files under `UPLOAD_DIR`, served from `/media`) or `supabase`. |
 | `UPLOAD_DIR`                     | `uploads`                     | Local flyer directory (local backend), relative to the backend dir. |
 | `MAX_UPLOAD_BYTES`               | `5242880`                     | Max flyer upload size in bytes (5 MB).                              |
@@ -475,10 +476,20 @@ convenience.)
 | `RESEND_API_KEY`                 | _(empty)_                     | Resend API key — **server-only secret**, never exposed to the frontend, never logged. Required when `EMAIL_BACKEND=resend`. |
 | `EMAIL_TIMEOUT_SECONDS`          | `10`                          | Hard cap on a single synchronous provider send.                    |
 
-When `STORAGE_BACKEND=supabase`, the app **refuses to boot** unless `SUPABASE_URL`
-and `SUPABASE_SERVICE_ROLE_KEY` are set. Likewise, in production a live
-`EMAIL_BACKEND` (e.g. `resend`) requires its credentials or the app refuses to
-boot. The API port is a uvicorn flag (`--port 8010`), not an env var.
+**Production fail-fast guards.** On boot (`validate_runtime`) the app **refuses to
+start** in production (`APP_ENV=production`) when: `JWT_SECRET` is the dev default;
+`SITE_URL` is blank or localhost (it builds invite/QR/email links); `CORS_ORIGINS`
+is empty, a wildcard, or localhost-only; `STORAGE_BACKEND=supabase` is missing
+`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`; or a live `EMAIL_BACKEND` (e.g.
+`resend`) is missing its credentials. Validate your config before deploying:
+
+```bash
+cd backend
+APP_ENV=production python -m scripts.validate_prod_config   # masked summary + pass/fail
+```
+
+The API port is a uvicorn flag (`--port 8010` / `$PORT`), not an env var. See
+**[DEPLOYMENT.md](DEPLOYMENT.md)** for the full production guide.
 
 ### Frontend (`frontend/.env.local`)
 
@@ -649,7 +660,8 @@ commands directly.
 ## API reference
 
 **Public**
-- `GET  /health`, `GET /api/health`
+- `GET  /health`, `GET /api/health` — liveness (process up); use for the platform health check
+- `GET  /ready`, `GET /api/ready` — readiness (DB connectivity; `503` when the database is unreachable)
 - `GET  /api/invites/{token}` — invite payload (never includes the tree name)
 - `POST /api/invites/{token}/rsvp` — submit/update an RSVP (rate limited)
 
@@ -680,7 +692,12 @@ commands directly.
 ## Deployment notes
 
 A typical production layout: **Vercel** (frontend) + **Render/Railway/Fly.io**
-(backend) + **Supabase** (Postgres).
+(backend) + **Supabase** (Postgres + Storage) + **Resend** (email). A full guide —
+env reference, live-integration checklists (Postgres/Storage/Resend), a
+post-deploy smoke checklist, and backup/rollback procedures — lives in
+**[DEPLOYMENT.md](DEPLOYMENT.md)**. Ready-made config: **`render.yaml`** (Render
+blueprint), **`backend/railway.json`** (Railway), and **`backend/scripts/start.sh`**
+(migrate-then-serve start command).
 
 **Supabase (database)**
 1. Create a project and copy the connection string.
@@ -690,13 +707,18 @@ A typical production layout: **Vercel** (frontend) + **Render/Railway/Fly.io**
 
 **Backend (Render / Railway / Fly.io)**
 - Build: `pip install -r requirements.txt`
-- Release/pre-deploy: `alembic upgrade head`
-- Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Start (migrate then serve): `bash scripts/start.sh` — runs `alembic upgrade head`
+  then `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, and fails fast if a
+  migration fails (never serves on a broken schema).
+- Health check: point the platform at `GET /api/health`. `GET /api/ready` adds a
+  DB connectivity check (`503` when the database is unreachable).
 - Env: `APP_ENV=production`, a strong `JWT_SECRET` (`openssl rand -hex 32`),
   `DATABASE_URL`, `SITE_URL` (your frontend URL), `CORS_ORIGINS` (your frontend
-  origin(s)). The app **refuses to boot** in production with the default secret.
+  origin(s)), and `TRUST_PROXY_HEADERS=true` (behind the platform proxy). The app
+  **refuses to boot** in production with an unsafe secret or localhost/blank
+  `SITE_URL`/`CORS_ORIGINS`. Verify first: `python -m scripts.validate_prod_config`.
 - Do **not** run `app.seed` against production; create your first event via the
-  admin UI. (Provision admin accounts by adapting the seed or a one-off script.)
+  admin UI. (Provision the first owner via a one-off script — see DEPLOYMENT.md §7.)
 
 **Flyer storage (production)**
 - Set `STORAGE_BACKEND=supabase`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
