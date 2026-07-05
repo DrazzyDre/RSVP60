@@ -34,8 +34,7 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 export default function EventsPage() {
-  const { events, loading, selectedEventId, refreshEvents, setSelectedEventId } =
-    useEvents();
+  const { events, loading, selectedEventId, refreshEvents } = useEvents();
   const canEdit = useCanEdit();
   const toast = useToast();
   const [mode, setMode] = useState<Mode>({ kind: "list" });
@@ -44,11 +43,6 @@ export default function EventsPage() {
     await refreshEvents();
     toast.success(`“${saved.name}” updated.`);
     setMode({ kind: "list" });
-  }
-
-  function selectEvent(ev: EventAdmin) {
-    setSelectedEventId(ev.id);
-    toast.success(`“${ev.name}” is now your selected event.`);
   }
 
   if (mode.kind === "edit") {
@@ -130,7 +124,6 @@ export default function EventsPage() {
               ev={ev}
               isCurrent={ev.id === selectedEventId}
               canEdit={canEdit}
-              onSelect={() => selectEvent(ev)}
               onEdit={() => setMode({ kind: "edit", event: ev })}
             />
           ))}
@@ -144,16 +137,13 @@ function EventCard({
   ev,
   isCurrent,
   canEdit,
-  onSelect,
   onEdit,
 }: {
   ev: EventAdmin;
   isCurrent: boolean;
   canEdit: boolean;
-  onSelect: () => void;
   onEdit: () => void;
 }) {
-  const { setSelectedEventId } = useEvents();
   return (
     <Card className={isCurrent ? "border-royal ring-1 ring-royal/20" : ""}>
       <CardHeader>
@@ -195,24 +185,18 @@ function EventCard({
         )}
 
         <div className="flex flex-wrap gap-2">
-          {isCurrent ? (
-            <Link href="/admin">
-              <Button size="sm" variant="secondary">
-                Open dashboard
-              </Button>
-            </Link>
-          ) : (
-            <Button size="sm" variant="secondary" onClick={onSelect}>
-              Select
+          <Link href={`/admin/e/${ev.id}`}>
+            <Button size="sm" variant="secondary">
+              Open workspace
             </Button>
-          )}
+          </Link>
           {canEdit && (
             <Button size="sm" variant="outline" onClick={onEdit}>
               <Pencil className="h-4 w-4" /> Edit
             </Button>
           )}
           <PreviewInviteButton eventId={ev.id} variant="ghost" label="Preview" />
-          <Link href="/admin/invite-trees" onClick={() => setSelectedEventId(ev.id)}>
+          <Link href={`/admin/e/${ev.id}/invite-trees`}>
             <Button size="sm" variant="ghost">
               <ListTree className="h-4 w-4" /> Invite trees
             </Button>

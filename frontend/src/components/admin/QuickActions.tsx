@@ -26,6 +26,8 @@ export function QuickActions() {
   const canEdit = useCanEdit();
   const { preview, loading: previewLoading } = usePreviewInvite();
   const hasEvent = Boolean(selectedEventId);
+  // Canonical workspace routes for the selected event.
+  const base = `/admin/e/${selectedEventId}`;
 
   return (
     <div>
@@ -42,7 +44,7 @@ export function QuickActions() {
         )}
         {canEdit && (
           <ActionTile
-            href="/admin/invite-trees"
+            href={`${base}/invite-trees`}
             icon={<ListTree className="h-5 w-5" />}
             label="Create invite tree"
             disabled={!hasEvent}
@@ -50,7 +52,7 @@ export function QuickActions() {
           />
         )}
         <ActionTile
-          href="/admin/rsvps"
+          href={`${base}/rsvps`}
           icon={<Users className="h-5 w-5" />}
           label="View RSVPs"
           disabled={!hasEvent}
@@ -70,14 +72,14 @@ export function QuickActions() {
           disabledHint="Select an event first"
         />
         <ActionTile
-          href="/admin/check-in"
+          href={`${base}/check-in`}
           icon={<UserCheck className="h-5 w-5" />}
           label="Open check-in"
           disabled={!hasEvent}
           disabledHint="Select an event first"
         />
         <ActionTile
-          href="/admin/manifest"
+          href={`${base}/manifest`}
           icon={<ClipboardList className="h-5 w-5" />}
           label="Guest manifest"
           disabled={!hasEvent}

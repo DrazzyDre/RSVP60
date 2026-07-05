@@ -400,6 +400,10 @@ class EventAdminOut(BaseModel):
     accepting_rsvps: bool = True
     availability_reason: str = "accepting"
     availability_label: str = "Accepting RSVPs"
+    # Readiness summary (completed/total checklist items) so the workspace
+    # switcher can show per-event readiness without extra requests. Set by router.
+    readiness_completed: int = 0
+    readiness_total: int = 0
     created_at: datetime
     updated_at: datetime
 

@@ -26,7 +26,8 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { AuthProvider } from "@/components/admin/auth-context";
 import { EventProvider, useEvents } from "@/components/admin/event-context";
-import { EventSwitcher } from "@/components/admin/EventSwitcher";
+import { WorkspaceBar } from "@/components/admin/WorkspaceBar";
+import { WorkspaceSwitcher } from "@/components/admin/WorkspaceSwitcher";
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { ToastProvider } from "@/components/ui/toast";
 import { ConfirmProvider } from "@/components/ui/confirm";
@@ -36,44 +37,48 @@ type NavItem = {
   label: string;
   icon: React.ElementType;
   ownerOnly?: boolean;
+  exact?: boolean;
 };
 
 type NavGroup = { label: string; items: NavItem[] };
 
-// Grouped so the growing set of pages stays scannable (see Phase 5.6 §12).
-const NAV_GROUPS: NavGroup[] = [
-  {
-    label: "Event",
+/**
+ * Two navigation levels (Phase 6.2): the WORKSPACE group is scoped to the
+ * selected event (canonical /admin/e/[eventId]/… routes); the PLATFORM group
+ * is global (events portfolio, team, audit). Event switching itself lives in
+ * the top workspace bar, not the sidebar.
+ */
+function buildNavGroups(eventId: string | null, isOwner: boolean): NavGroup[] {
+  const groups: NavGroup[] = [];
+  if (eventId) {
+    const base = `/admin/e/${eventId}`;
+    groups.push({
+      label: "Workspace",
+      items: [
+        { href: base, label: "Overview", icon: LayoutDashboard, exact: true },
+        { href: `${base}/invite-trees`, label: "Invite Trees", icon: ListTree },
+        { href: `${base}/rsvps`, label: "Guests / RSVPs", icon: Users },
+        { href: `${base}/communications`, label: "Communications", icon: Mail },
+        { href: `${base}/check-in`, label: "Check-in", icon: UserCheck },
+        { href: `${base}/manifest`, label: "Manifest", icon: ClipboardList },
+        { href: `${base}/settings`, label: "Event Settings", icon: Settings },
+      ],
+    });
+  }
+  groups.push({
+    label: "Platform",
     items: [
-      { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
       { href: "/admin/events", label: "Events", icon: CalendarRange },
-      { href: "/admin/invite-trees", label: "Invite Trees", icon: ListTree },
-      { href: "/admin/rsvps", label: "RSVPs", icon: Users },
-    ],
-  },
-  {
-    label: "Operations",
-    items: [
-      { href: "/admin/communications", label: "Communications", icon: Mail },
-      { href: "/admin/check-in", label: "Check-in", icon: UserCheck },
-      { href: "/admin/manifest", label: "Manifest", icon: ClipboardList },
-    ],
-  },
-  {
-    label: "Administration",
-    items: [
       { href: "/admin/admins", label: "Admins", icon: ShieldCheck, ownerOnly: true },
       { href: "/admin/audit", label: "Audit", icon: ScrollText, ownerOnly: true },
-      { href: "/admin/settings", label: "Settings", icon: Settings },
-    ],
-  },
-];
+    ].filter((item) => !item.ownerOnly || isOwner),
+  });
+  return groups;
+}
 
-function isActive(href: string, pathname: string): boolean {
-  // Dashboard is the index route, so only an exact match highlights it;
-  // section routes also stay active on their sub-pages (e.g. /admin/events/new).
-  if (href === "/admin") return pathname === "/admin";
-  return pathname === href || pathname.startsWith(`${href}/`);
+function isActive(item: NavItem, pathname: string): boolean {
+  if (item.exact) return pathname === item.href;
+  return pathname === item.href || pathname.startsWith(`${item.href}/`);
 }
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -151,12 +156,10 @@ function AdminShell({
   children: React.ReactNode;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const { selectedEventId } = useEvents();
   const isOwner = admin?.role === "owner";
 
-  const groups = NAV_GROUPS.map((g) => ({
-    ...g,
-    items: g.items.filter((item) => !item.ownerOnly || isOwner),
-  })).filter((g) => g.items.length > 0);
+  const groups = buildNavGroups(selectedEventId, isOwner);
 
   // Close the mobile drawer whenever the route changes.
   useEffect(() => {
@@ -165,14 +168,12 @@ function AdminShell({
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-muted/40 lg:flex-row print:h-auto print:overflow-visible">
-      {/* Sidebar (desktop) — fixed full height; does not scroll with content */}
+      {/* Sidebar (desktop) — navigation only; workspace switching lives in the
+          top bar. Fixed full height; does not scroll with content. */}
       <aside className="hidden w-64 flex-shrink-0 border-r bg-white lg:flex lg:flex-col print:hidden">
         <div className="border-b bg-royal p-5">
           <BrandLogo variant="light" priority className="h-7" />
           <p className="mt-2 text-xs text-white/70">Admin Console</p>
-        </div>
-        <div className="border-b p-4">
-          <EventSwitcher />
         </div>
         <nav className="flex-1 space-y-4 overflow-y-auto p-3">
           {groups.map((group) => (
@@ -198,23 +199,22 @@ function AdminShell({
 
       {/* Content column — only this region scrolls */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col print:block print:min-h-0">
-        <header className="flex items-center justify-between gap-2 border-b bg-white px-4 py-3 lg:hidden">
+        {/* Desktop workspace bar */}
+        <WorkspaceBar />
+
+        {/* Mobile header: menu · brand · current-event switcher (one tap) */}
+        <header className="flex items-center gap-2 border-b bg-white px-3 py-2.5 lg:hidden print:hidden">
           <button
             type="button"
             onClick={() => setMenuOpen(true)}
             aria-label="Open menu"
-            className="flex h-10 w-10 items-center justify-center rounded-lg border border-input text-foreground hover:bg-muted"
+            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-input text-foreground hover:bg-muted"
           >
             <Menu className="h-5 w-5" />
           </button>
-          <BrandLogo variant="mark" className="h-7 w-7" />
-          <CurrentEventPill />
+          <BrandLogo variant="mark" className="h-7 w-7 flex-shrink-0" />
+          <WorkspaceSwitcher variant="compact" className="min-w-0 flex-1" />
         </header>
-
-        {/* Mobile event switcher for quick context/switching without the drawer */}
-        <div className="border-b bg-white p-3 lg:hidden">
-          <EventSwitcher />
-        </div>
 
         <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 print:overflow-visible print:p-0">
           {children}
@@ -283,20 +283,10 @@ function NavSection({ group, pathname }: { group: NavGroup; pathname: string }) 
           href={item.href}
           label={item.label}
           icon={item.icon}
-          active={isActive(item.href, pathname)}
+          active={isActive(item, pathname)}
         />
       ))}
     </div>
-  );
-}
-
-function CurrentEventPill() {
-  const { selectedEvent } = useEvents();
-  if (!selectedEvent) return <span className="w-10" aria-hidden />;
-  return (
-    <span className="max-w-[45%] truncate rounded-full bg-royal/10 px-3 py-1 text-xs font-medium text-royal">
-      {selectedEvent.name}
-    </span>
   );
 }
 

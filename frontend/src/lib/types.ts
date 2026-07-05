@@ -82,6 +82,9 @@ export interface EventAdmin {
   accepting_rsvps: boolean;
   availability_reason: string;
   availability_label: string;
+  // Readiness checklist summary (completed/total server-side items).
+  readiness_completed: number;
+  readiness_total: number;
   created_at: string;
   updated_at: string;
 }

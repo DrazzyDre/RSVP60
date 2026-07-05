@@ -18,9 +18,9 @@ export default function NewEventPage() {
   const toast = useToast();
 
   async function handleSaved(saved: EventAdmin, meta?: EventSaveMeta) {
-    // The new event immediately becomes the selected/current event and appears
-    // in the switcher, then we send the admin to finish setup on the readiness
-    // page — no full refresh needed for it to show up.
+    // The new event immediately becomes the selected/current workspace: we
+    // navigate to its canonical scoped Settings route, and the workspace layout
+    // adopts the URL's event id (updating the switcher + recents).
     await refreshEvents();
     setSelectedEventId(saved.id);
     if (meta?.flyerUploadFailed) {
@@ -34,7 +34,7 @@ export default function NewEventPage() {
     } else {
       toast.success(`“${saved.name}” created — finish setting it up below.`);
     }
-    router.push("/admin/settings");
+    router.push(`/admin/e/${saved.id}/settings`);
   }
 
   if (!canEdit) {

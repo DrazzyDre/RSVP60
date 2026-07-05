@@ -391,6 +391,59 @@ def _get_event_or_404(db: Session, event_id: str) -> Event:
     return event
 
 
+def _readiness_items(event: Event, tree_count: int) -> list[ReadinessItem]:
+    """The pre-share readiness checklist for an event.
+
+    Shared by the readiness endpoint and the event serializer (which exposes a
+    completed/total summary on every event so the workspace switcher can show
+    readiness without one extra request per event).
+    """
+    has_details = bool(
+        event.title
+        and event.event_date
+        and event.venue_name
+        and (event.invite_message or event.description)
+    )
+    return [
+        ReadinessItem(
+            key="details",
+            label="Event details completed",
+            done=has_details,
+            hint="Add a title, date, venue and invitation copy.",
+        ),
+        ReadinessItem(
+            key="flyer",
+            label="Flyer / image added",
+            done=bool(event.flyer_storage_path or event.flyer_url),
+            hint="Upload a flyer image or paste an image URL.",
+        ),
+        ReadinessItem(
+            key="venue_map",
+            label="Venue & map link added",
+            done=bool(event.venue_name and event.maps_url),
+            hint="Add the venue name and a Google Maps link.",
+        ),
+        ReadinessItem(
+            key="gifts",
+            label="Gift details added",
+            done=bool(event.gift_details),
+            hint="Let guests know your gift preferences (optional).",
+        ),
+        ReadinessItem(
+            key="trees",
+            label="At least one invite tree created",
+            done=tree_count >= 1,
+            hint="Create an invite tree to generate a shareable link.",
+        ),
+        ReadinessItem(
+            key="deadline",
+            label="RSVP deadline set",
+            done=bool(event.rsvp_deadline),
+            hint="Set a deadline so guests know when to respond.",
+        ),
+    ]
+
+
 def _serialize_event(db: Session, event: Event) -> EventAdminOut:
     tree_count = int(
         db.execute(
@@ -421,6 +474,11 @@ def _serialize_event(db: Session, event: Event) -> EventAdminOut:
     out.accepting_rsvps = availability.accepting
     out.availability_reason = availability.reason
     out.availability_label = availability.label
+    # Readiness summary for the workspace switcher (full items live on the
+    # dedicated readiness endpoint; the local "link tested" step is client-side).
+    items = _readiness_items(event, tree_count)
+    out.readiness_completed = sum(1 for i in items if i.done)
+    out.readiness_total = len(items)
     return out
 
 
@@ -628,51 +686,7 @@ def event_readiness(
             select(func.count(InviteTree.id)).where(InviteTree.event_id == event.id)
         ).scalar_one()
     )
-
-    has_details = bool(
-        event.title
-        and event.event_date
-        and event.venue_name
-        and (event.invite_message or event.description)
-    )
-    items = [
-        ReadinessItem(
-            key="details",
-            label="Event details completed",
-            done=has_details,
-            hint="Add a title, date, venue and invitation copy.",
-        ),
-        ReadinessItem(
-            key="flyer",
-            label="Flyer / image added",
-            done=bool(event.flyer_storage_path or event.flyer_url),
-            hint="Upload a flyer image or paste an image URL.",
-        ),
-        ReadinessItem(
-            key="venue_map",
-            label="Venue & map link added",
-            done=bool(event.venue_name and event.maps_url),
-            hint="Add the venue name and a Google Maps link.",
-        ),
-        ReadinessItem(
-            key="gifts",
-            label="Gift details added",
-            done=bool(event.gift_details),
-            hint="Let guests know your gift preferences (optional).",
-        ),
-        ReadinessItem(
-            key="trees",
-            label="At least one invite tree created",
-            done=tree_count >= 1,
-            hint="Create an invite tree to generate a shareable link.",
-        ),
-        ReadinessItem(
-            key="deadline",
-            label="RSVP deadline set",
-            done=bool(event.rsvp_deadline),
-            hint="Set a deadline so guests know when to respond.",
-        ),
-    ]
+    items = _readiness_items(event, tree_count)
     completed = sum(1 for i in items if i.done)
     return EventReadiness(items=items, completed=completed, total=len(items))
 

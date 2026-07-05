@@ -66,6 +66,10 @@ Phase 5.6 additions (event creation):
   * creation validates the required name; new events default to "draft"
   * a new event is empty and event-scoped and does not disturb other events
 
+Phase 6.2 additions (workspace shell):
+  * admin event payloads expose a readiness_completed/readiness_total summary
+    that matches the dedicated readiness endpoint (drives the workspace switcher)
+
 Phase 6.1 additions (RSVP availability reasons):
   * admin event/tree payloads expose accepting_rsvps + a machine + human reason
   * draft/closed events and paused trees report the correct closure reason
@@ -966,6 +970,31 @@ def main() -> int:
                 {"full_name": "Probe", "phone": "+2348000000123", "attending": True},
             )
             check("closed event rejects public RSVP (409)", s == 409, str(s))
+
+    # --- Phase 6.2: readiness summary on event payloads --------------------
+    _, evB62 = jget(f"/api/admin/events/{B}", token)
+    check(
+        "admin event exposes readiness summary fields",
+        "readiness_completed" in evB62 and "readiness_total" in evB62,
+        str([k for k in ("readiness_completed", "readiness_total") if k not in evB62]),
+    )
+    _, rd62 = jget(f"/api/admin/events/{B}/readiness", token)
+    check(
+        "event readiness summary matches the readiness endpoint",
+        evB62.get("readiness_total") == rd62["total"]
+        and evB62.get("readiness_completed") == rd62["completed"],
+        f"event={evB62.get('readiness_completed')}/{evB62.get('readiness_total')} "
+        f"endpoint={rd62['completed']}/{rd62['total']}",
+    )
+    s, rawb62 = post("/api/admin/events", {"name": "Readiness Probe 6.2"}, otok)
+    check("create readiness probe event (201)", s == 201, f"{s} {rawb62[:80]}")
+    if s == 201:
+        bare = json.loads(rawb62)
+        check(
+            "bare new event has low readiness out of the full checklist",
+            bare.get("readiness_total") == 6 and bare.get("readiness_completed") <= 1,
+            f"{bare.get('readiness_completed')}/{bare.get('readiness_total')}",
+        )
 
     # --- Phase 3.5: login rate limiting (run last) -----------------------
     brute = {"email": "bruteforce@gatherarc.com", "password": "wrongwrong"}
