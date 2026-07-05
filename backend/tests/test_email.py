@@ -6,7 +6,9 @@ email provider and no network. Run from the backend/ directory:
     python -m unittest tests.test_email -v
 """
 
+import io
 import unittest
+import urllib.error
 from unittest import mock
 
 from sqlalchemy import create_engine
@@ -14,8 +16,11 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app.email import service, templates
-from app.email.base import EmailProvider, EmailResult
+from app.email import providers as providers_mod
+from app.email.base import EmailMessage, EmailProvider, EmailResult
+from app.email.providers import ResendEmailProvider, _http_error_summary
 from app.models import CommunicationLog, Event, InviteTree, Rsvp
+from app.routers import communications as comms
 
 TREE_SECRET_NAME = "Inner Family Circle SECRET"
 
@@ -161,6 +166,41 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(len(self.provider.sent), 1)
         self.assertIsNotNone(rsvp.confirmation_sent_at)
 
+    # --- duplicate confirmation guard ---------------------------------------
+    def test_duplicate_unchanged_confirmation_is_skipped(self):
+        _, _, rsvp = _seed(self.db, email="g@example.com", email_opt_in=True,
+                           rsvp_status="accepted")
+        first = service.send_rsvp_confirmation(self.db, rsvp, rsvp.event)
+        self.assertEqual(first.status, "sent")
+        # Re-submitting the SAME (accepted) RSVP does not send a second email.
+        dup = service.send_rsvp_confirmation(
+            self.db, rsvp, rsvp.event, previous_status="accepted"
+        )
+        self.assertEqual(dup.status, "skipped")
+        self.assertEqual(len(self.provider.sent), 1)
+
+    def test_confirmation_resends_on_status_change(self):
+        _, _, rsvp = _seed(self.db, email="g@example.com", email_opt_in=True,
+                           rsvp_status="accepted")
+        service.send_rsvp_confirmation(self.db, rsvp, rsvp.event)
+        # A genuine change (waitlisted -> accepted) re-confirms.
+        log = service.send_rsvp_confirmation(
+            self.db, rsvp, rsvp.event, previous_status="waitlisted"
+        )
+        self.assertEqual(log.status, "sent")
+        self.assertEqual(len(self.provider.sent), 2)
+
+    def test_allow_resend_forces_send(self):
+        _, _, rsvp = _seed(self.db, email="g@example.com", email_opt_in=True,
+                           rsvp_status="accepted")
+        service.send_rsvp_confirmation(self.db, rsvp, rsvp.event)
+        # The explicit admin resend path always sends, even if unchanged.
+        log = service.send_rsvp_confirmation(
+            self.db, rsvp, rsvp.event, previous_status="accepted", allow_resend=True
+        )
+        self.assertEqual(log.status, "sent")
+        self.assertEqual(len(self.provider.sent), 2)
+
     # --- provider failure does not corrupt state -----------------------------
     def test_provider_failure_is_recorded_not_raised(self):
         self.provider.ok = False
@@ -248,6 +288,87 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(summary["sent"], 1)
         self.assertEqual(summary["skipped"], 1)
         self.assertIsNotNone(r1.reminder_sent_at)
+
+
+class ProviderCategorizationTests(unittest.TestCase):
+    """Resend HTTP failures map to safe, actionable, secret-free summaries."""
+
+    def test_http_status_summaries(self):
+        self.assertIn("authentication", _http_error_summary(401).lower())
+        self.assertIn("verified", _http_error_summary(403).lower())
+        self.assertIn("recipient", _http_error_summary(422).lower())
+        self.assertIn("rate limit", _http_error_summary(429).lower())
+        self.assertIn("http 500", _http_error_summary(500).lower())
+
+    def test_summaries_carry_no_secret(self):
+        for code in (401, 403, 422, 429, 500):
+            self.assertNotIn("bearer", _http_error_summary(code).lower())
+
+    def test_resend_403_reports_sender_not_verified(self):
+        err = urllib.error.HTTPError(
+            "https://api.resend.com/emails", 403, "Forbidden", {},
+            io.BytesIO(b'{"message":"The domain is not verified"}'),
+        )
+        with mock.patch.object(
+            providers_mod.urllib.request, "urlopen", side_effect=err
+        ):
+            res = ResendEmailProvider("re_SECRETKEY").send(
+                EmailMessage(to="g@example.com", subject="s", html="h", text="t")
+            )
+        self.assertEqual(res.status, "failed")
+        self.assertIn("verified", (res.error_summary or "").lower())
+        self.assertNotIn("re_SECRETKEY", res.error_summary or "")
+
+    def test_resend_401_reports_auth_failed(self):
+        err = urllib.error.HTTPError(
+            "https://api.resend.com/emails", 401, "Unauthorized", {},
+            io.BytesIO(b'{}'),
+        )
+        with mock.patch.object(
+            providers_mod.urllib.request, "urlopen", side_effect=err
+        ):
+            res = ResendEmailProvider("re_key").send(
+                EmailMessage(to="g@example.com", subject="s", html="h", text="t")
+            )
+        self.assertEqual(res.status, "failed")
+        self.assertIn("authentication", (res.error_summary or "").lower())
+
+    def test_resend_missing_key_fails_safely(self):
+        res = ResendEmailProvider("").send(
+            EmailMessage(to="g@example.com", subject="s", html="h", text="t")
+        )
+        self.assertEqual(res.status, "failed")
+
+
+class ReasonLabelTests(unittest.TestCase):
+    """The admin log's human-readable reason is derived safely server-side."""
+
+    def _log(self, status, meta="{}", error_summary=None):
+        return CommunicationLog(
+            event_id="e", communication_type="rsvp_confirmation",
+            status=status, meta=meta, error_summary=error_summary, recipient="",
+        )
+
+    def test_no_consent_reason(self):
+        self.assertIn(
+            "opt in",
+            comms._log_reason(self._log("skipped", '{"reason": "no_consent"}')).lower(),
+        )
+
+    def test_duplicate_reason(self):
+        self.assertIn(
+            "already sent",
+            comms._log_reason(self._log("skipped", '{"reason": "duplicate"}')).lower(),
+        )
+
+    def test_failed_reason_uses_sanitized_error_summary(self):
+        self.assertEqual(
+            comms._log_reason(self._log("failed", error_summary="Sender not verified.")),
+            "Sender not verified.",
+        )
+
+    def test_sent_has_no_reason(self):
+        self.assertIsNone(comms._log_reason(self._log("sent", '{"status": "accepted"}')))
 
 
 if __name__ == "__main__":

@@ -22,7 +22,7 @@ import type {
 import { useEvents } from "@/components/admin/event-context";
 import { useCanEdit } from "@/components/admin/auth-context";
 import { EmptyEventState } from "@/components/admin/EmptyEventState";
-import { formatDateTimeShort } from "@/lib/utils";
+import { cn, formatDateTimeShort } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -214,6 +214,13 @@ function BackendCard({ status }: { status: CommunicationsStatus }) {
           A live provider is selected but its credentials are missing — emails
           will not send. Set the provider API key and from-address, or use the
           console backend for local testing.
+        </div>
+      )}
+      {email.configured && !email.is_live_provider && (
+        <div className="mx-6 mb-5 rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          Console backend — emails are only <strong>logged</strong>, not
+          delivered. For real delivery set <code>EMAIL_BACKEND=resend</code> with
+          a verified sender and redeploy the backend.
         </div>
       )}
     </Card>
@@ -413,7 +420,8 @@ function RecentLog({
                 <tr>
                   <th className="px-4 py-2 font-medium">Type</th>
                   <th className="px-4 py-2 font-medium">Recipient</th>
-                  <th className="px-4 py-2 font-medium">Status</th>
+                  <th className="px-4 py-2 font-medium">Status &amp; reason</th>
+                  <th className="px-4 py-2 font-medium">Provider</th>
                   <th className="px-4 py-2 font-medium">When</th>
                 </tr>
               </thead>
@@ -430,10 +438,32 @@ function RecentLog({
                       <Badge className={STATUS_BADGE[l.status] ?? ""}>
                         {l.status}
                       </Badge>
-                      {l.error_summary && (
-                        <span className="ml-2 text-xs text-red-600">
-                          {l.error_summary}
-                        </span>
+                      {/* Sanitized skip/failure explanation (never secrets). */}
+                      {l.reason && l.status !== "sent" && (
+                        <p
+                          className={cn(
+                            "mt-1 text-xs",
+                            l.status === "failed"
+                              ? "text-red-600"
+                              : "text-muted-foreground"
+                          )}
+                        >
+                          {l.reason}
+                        </p>
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-muted-foreground">
+                      <span className="capitalize">{l.provider || "—"}</span>
+                      {l.provider === "console" && (
+                        <span className="ml-1 text-xs text-amber-700">(logged)</span>
+                      )}
+                      {l.provider_message_id && (
+                        <p
+                          className="mt-0.5 max-w-[10rem] truncate text-[11px] text-muted-foreground/70"
+                          title={l.provider_message_id}
+                        >
+                          id: {l.provider_message_id}
+                        </p>
                       )}
                     </td>
                     <td className="px-4 py-2 text-muted-foreground">

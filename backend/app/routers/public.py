@@ -112,6 +112,10 @@ def submit_rsvp(
         )
     ).scalar_one_or_none()
 
+    # The RSVP status BEFORE this submission — used to suppress a duplicate
+    # confirmation email when a guest re-submits an unchanged RSVP.
+    previous_status = existing.rsvp_status if existing is not None else None
+
     # Remaining capacity for this tree, excluding the guest's own existing RSVP
     # so an update doesn't double-count their previously-held seats.
     remaining = remaining_seats(
@@ -171,7 +175,9 @@ def submit_rsvp(
     # The RSVP is already committed; a delivery hiccup can't roll it back.
     try:
         event = tree.event
-        email_service.send_rsvp_confirmation(db, rsvp, event)
+        email_service.send_rsvp_confirmation(
+            db, rsvp, event, previous_status=previous_status
+        )
         if new_status == "waitlisted":
             email_service.send_host_alert(
                 db, event, "host_waitlisted_rsvp",

@@ -146,11 +146,23 @@ def _commit(db: Session) -> None:
 # --------------------------------------------------------------------------- #
 # Guest transactional emails
 # --------------------------------------------------------------------------- #
-def send_rsvp_confirmation(db: Session, rsvp: Rsvp, event) -> CommunicationLog | None:
+def send_rsvp_confirmation(
+    db: Session,
+    rsvp: Rsvp,
+    event,
+    *,
+    previous_status: str | None = None,
+    allow_resend: bool = False,
+) -> CommunicationLog | None:
     """Confirmation after a guest submits/updates their RSVP.
 
     Reflects the ACTUAL outcome (accepted / waitlisted / declined) — a
     waitlisted guest is never told they are confirmed.
+
+    Duplicate protection: when a guest re-submits an UNCHANGED RSVP (same status)
+    for which a confirmation was already sent, this records a ``skipped``
+    (``reason=duplicate``) instead of re-sending. A genuine status change still
+    re-confirms, and the admin ``allow_resend`` path always sends.
     """
     try:
         if not getattr(rsvp, "email", None):
@@ -160,6 +172,18 @@ def send_rsvp_confirmation(db: Session, rsvp: Rsvp, event) -> CommunicationLog |
                 db, event_id=event.id, comm_type="rsvp_confirmation",
                 recipient=rsvp.email, status="skipped", rsvp_id=rsvp.id,
                 meta={"reason": "no_consent"},
+            )
+            _commit(db)
+            return log
+        already_sent = getattr(rsvp, "confirmation_sent_at", None) is not None
+        status_unchanged = (
+            previous_status is not None and previous_status == rsvp.rsvp_status
+        )
+        if already_sent and status_unchanged and not allow_resend:
+            log = _record(
+                db, event_id=event.id, comm_type="rsvp_confirmation",
+                recipient=rsvp.email, status="skipped", rsvp_id=rsvp.id,
+                meta={"reason": "duplicate"},
             )
             _commit(db)
             return log

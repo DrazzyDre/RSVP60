@@ -6,6 +6,7 @@ reach these endpoints — email side effects for guests happen internally on the
 public RSVP path.
 """
 
+import json
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -69,8 +70,38 @@ def _last_reminder_sent_at(db: Session, event_id: str):
     ).scalar_one_or_none()
 
 
+# Human labels for skip reasons stored in a log row's (safe) metadata.
+_SKIP_REASON_LABELS = {
+    "no_email": "Guest did not provide an email address",
+    "no_consent": "Guest did not opt in to email updates",
+    "duplicate": "Confirmation was already sent",
+    "not_eligible": "Guest has no email or did not opt in",
+    "no_change": "No status change occurred",
+}
+
+
+def _log_reason(row: CommunicationLog) -> str | None:
+    """A safe, human-readable explanation of a skipped/failed outcome.
+
+    Failures reuse the already-sanitized ``error_summary``; skips are mapped from
+    the log's safe metadata reason. Never exposes secrets or raw provider bodies.
+    """
+    if row.status == "failed":
+        return row.error_summary or "Delivery failed."
+    if row.status == "skipped":
+        try:
+            meta = json.loads(row.meta or "{}")
+        except (ValueError, TypeError):
+            meta = {}
+        key = meta.get("reason") if isinstance(meta, dict) else None
+        return _SKIP_REASON_LABELS.get(key, "Not sent")
+    return None
+
+
 def _log_out(row: CommunicationLog) -> CommunicationLogOut:
-    return CommunicationLogOut.model_validate(row)
+    out = CommunicationLogOut.model_validate(row)
+    out.reason = _log_reason(row)
+    return out
 
 
 @router.get("/status", response_model=CommunicationsStatus)

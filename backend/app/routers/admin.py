@@ -1111,7 +1111,8 @@ def resend_confirmation(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This guest has not opted in to email updates.",
         )
-    log = email_service.send_rsvp_confirmation(db, rsvp, rsvp.event)
+    # Explicit admin resend always sends, even if one was already delivered.
+    log = email_service.send_rsvp_confirmation(db, rsvp, rsvp.event, allow_resend=True)
     log_action(db, admin, "rsvp_confirmation_resent", "rsvp", rsvp.id, {})
     db.commit()
     if log is None:

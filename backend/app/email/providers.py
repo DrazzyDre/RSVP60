@@ -11,6 +11,7 @@
 
 import json
 import logging
+import socket
 import urllib.error
 import urllib.request
 import uuid
@@ -21,6 +22,20 @@ from .base import EmailMessage, EmailProvider, EmailResult
 logger = logging.getLogger("gatherarc.email")
 
 RESEND_ENDPOINT = "https://api.resend.com/emails"
+
+
+def _http_error_summary(code: int) -> str:
+    """Map a provider HTTP status to a safe, actionable admin-facing reason.
+
+    Never includes the API key, auth header or raw provider body.
+    """
+    return {
+        401: "Provider authentication failed (check the API key).",
+        403: "Sender address or domain is not verified with the provider.",
+        404: "Provider rejected the request (not found).",
+        422: "Provider rejected the recipient or message.",
+        429: "Provider rate limit reached — try again shortly.",
+    }.get(code, f"Provider error (HTTP {code}).")
 
 
 def _from_header() -> str:
@@ -95,20 +110,30 @@ class ResendEmailProvider(EmailProvider):
                 provider_message_id=str(body.get("id") or "") or None,
             )
         except urllib.error.HTTPError as exc:
-            # Record only the status code + a short reason — never the response
-            # body (which can echo request data) and never the API key.
+            # Record only the status code + a short, sanitized category — never
+            # the response body (which can echo request data) and never the key.
             logger.warning("Resend send failed: HTTP %s", exc.code)
             return EmailResult(
                 status="failed",
                 provider=self.name,
-                error_summary=f"Provider returned HTTP {exc.code}.",
+                error_summary=_http_error_summary(exc.code),
             )
-        except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+        except (TimeoutError, socket.timeout) as exc:
             logger.warning("Resend send error: %s", type(exc).__name__)
             return EmailResult(
                 status="failed",
                 provider=self.name,
-                error_summary=f"Provider unreachable ({type(exc).__name__}).",
+                error_summary="Provider timed out.",
+            )
+        except (urllib.error.URLError, ValueError) as exc:
+            reason = getattr(exc, "reason", None)
+            if isinstance(reason, (TimeoutError, socket.timeout)):
+                summary = "Provider timed out."
+            else:
+                summary = "Provider unreachable."
+            logger.warning("Resend send error: %s", type(exc).__name__)
+            return EmailResult(
+                status="failed", provider=self.name, error_summary=summary
             )
 
 

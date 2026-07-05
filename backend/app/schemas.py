@@ -600,6 +600,9 @@ class CommunicationLogOut(BaseModel):
     status: str
     provider_message_id: str | None = None
     error_summary: str | None = None
+    # Human-readable, sanitized explanation of a skipped/failed outcome (derived
+    # server-side from the status + safe metadata). Never contains secrets.
+    reason: str | None = None
     sent_at: datetime | None = None
     created_at: datetime
 

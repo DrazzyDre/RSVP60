@@ -295,6 +295,8 @@ export interface CommunicationLog {
   status: CommunicationStatus;
   provider_message_id: string | null;
   error_summary: string | null;
+  // Human-readable, sanitized explanation of a skipped/failed outcome.
+  reason: string | null;
   sent_at: string | null;
   created_at: string;
 }

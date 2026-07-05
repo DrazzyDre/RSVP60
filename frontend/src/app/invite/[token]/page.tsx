@@ -34,6 +34,10 @@ export default function InvitePage() {
   const [invite, setInvite] = useState<InvitePublic | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Once the guest submits, the pre-submission prompt ("Kindly RSVP", the
+  // deadline line) must give way entirely to the outcome confirmation, which
+  // the form renders from the API result.
+  const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -227,25 +231,33 @@ export default function InvitePage() {
           id="rsvp"
           className="animate-fade-up mt-10 rounded-2xl border border-gold/30 bg-white p-6 shadow-md sm:p-8"
         >
-          <div className="mb-6 text-center">
-            <h3
-              className="font-serif text-2xl font-bold"
-              style={{ color: "var(--iv-accent)" }}
-            >
-              Kindly RSVP
-            </h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {invitationVerb(event.event_type)}.
-            </p>
-            {event.rsvp_deadline && invite.accepting_rsvps && (
-              <p className="mt-2 text-xs font-medium text-muted-foreground">
-                Please RSVP by {formatDate(event.rsvp_deadline)}
+          {/* Pre-submission prompt only — hidden once a response is recorded so
+              the confirmation never asks the guest to RSVP again. */}
+          {!submitted && (
+            <div className="mb-6 text-center">
+              <h3
+                className="font-serif text-2xl font-bold"
+                style={{ color: "var(--iv-accent)" }}
+              >
+                Kindly RSVP
+              </h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {invitationVerb(event.event_type)}.
               </p>
-            )}
-          </div>
+              {event.rsvp_deadline && invite.accepting_rsvps && (
+                <p className="mt-2 text-xs font-medium text-muted-foreground">
+                  Please RSVP by {formatDate(event.rsvp_deadline)}
+                </p>
+              )}
+            </div>
+          )}
 
           {invite.accepting_rsvps ? (
-            <RsvpForm token={token} invite={invite} />
+            <RsvpForm
+              token={token}
+              invite={invite}
+              onSubmitted={() => setSubmitted(true)}
+            />
           ) : (
             <div className="rounded-lg bg-muted px-4 py-6 text-center">
               <p className="font-medium text-foreground">

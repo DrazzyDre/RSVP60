@@ -258,13 +258,39 @@ Then use a dedicated **test event** so nothing touches real flyers:
 
 ## 10. Resend — manual smoke checklist
 
+GatherArc email env (set on the **backend/Render only** — never Vercel):
+
+```env
+EMAIL_BACKEND=resend
+EMAIL_FROM_ADDRESS=<VERIFIED_SENDER_ADDRESS>
+EMAIL_FROM_NAME=GatherArc
+RESEND_API_KEY=<SERVER_SIDE_SECRET>
+EMAIL_TIMEOUT_SECONDS=10
+```
+
+- `EMAIL_BACKEND` must be **`resend`**, not `console` (console only *logs* — no
+  delivery); the sender address/domain must be **verified** in Resend; env
+  changes require a **backend redeploy**; the key never reaches the frontend.
+
+First, validate from the **Render Shell** (masked; sends nothing unless asked):
+
+```bash
+python -m scripts.validate_email                          # config check
+python -m scripts.validate_email --send-to you@approved.com  # one test email
+```
+
 Send **only** clearly-labelled test emails to an **approved test recipient**.
 **Do not send bulk reminders** during validation.
 
+- [ ] `validate_email` passes and (with `--send-to`) the test email arrives.
 - [ ] Sender domain/address is verified in Resend; `EMAIL_FROM_ADDRESS` matches.
-- [ ] `EMAIL_BACKEND=resend` and the config validator passes.
-- [ ] Submit an opted-in **accepted** RSVP (your test address) → confirmation arrives;
-      the communication log row is `sent` with a real `provider_message_id`.
+- [ ] `EMAIL_BACKEND=resend` (not `console`) and the config validator passes.
+- [ ] Submit an opted-in **accepted** RSVP (your test address) → the confirmation
+      **popup** shows only post-submission copy (no "Kindly RSVP"/deadline), and
+      the communication log row is `sent` via the **`resend`** provider with a real
+      `provider_message_id`.
+- [ ] Re-submit the **same** RSVP → the log shows a `skipped` row (*Confirmation was
+      already sent*), not a second delivery.
 - [ ] Submit a **waitlisted** RSVP → the email wording says *on the waitlist / not
       yet confirmed* (never "confirmed").
 - [ ] Temporarily set a **bad** API key → a send produces a `failed` log with a short

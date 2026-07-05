@@ -70,6 +70,12 @@ Phase 6.2 additions (workspace shell):
   * admin event payloads expose a readiness_completed/readiness_total summary
     that matches the dedicated readiness endpoint (drives the workspace switcher)
 
+Phase 6.3 additions (confirmation email diagnostics):
+  * an opted-in RSVP records a SENT confirmation with a provider + message id
+  * an identical re-submit is skipped (not re-sent) with an "already sent" reason
+  * a no-consent confirmation is skipped with a clear opt-in reason
+  * an editor can force a resend; comms logs never expose a provider secret
+
 Phase 6.1 additions (RSVP availability reasons):
   * admin event/tree payloads expose accepting_rsvps + a machine + human reason
   * draft/closed events and paused trees report the correct closure reason
@@ -995,6 +1001,84 @@ def main() -> int:
             bare.get("readiness_total") == 6 and bare.get("readiness_completed") <= 1,
             f"{bare.get('readiness_completed')}/{bare.get('readiness_total')}",
         )
+
+    # --- Phase 6.3: confirmation email diagnostics + duplicate guard -------
+    s, rawe63 = post(
+        "/api/admin/events", {"name": "Email Diag 6.3", "status": "active"}, otok
+    )
+    e63 = json.loads(rawe63)["id"] if s == 201 else None
+    check("create email-diag event (active)", s == 201 and bool(e63), f"{s} {rawe63[:80]}")
+    tok63 = None
+    if e63:
+        s, rawt63 = post(
+            "/api/admin/invite-trees",
+            {"event_id": e63, "name": "Diag Tree", "allocated_seats": 10, "max_extra_guests": 0},
+            token,
+        )
+        tok63 = json.loads(rawt63)["token"] if s == 201 else None
+
+    def _confirm_logs(recipient):
+        _, page = jget(f"/api/admin/communications/logs?event_id={e63}&limit=500", token)
+        return [
+            i for i in page["items"]
+            if i["communication_type"] == "rsvp_confirmation" and i["recipient"] == recipient
+        ]
+
+    if tok63:
+        # Opted-in RSVP -> sent confirmation, with provider + message id + no reason.
+        s, r63 = post(f"/api/invites/{tok63}/rsvp", {
+            "full_name": "Confirm Once", "phone": "+2347799000063",
+            "email": "confirm-once@example.com", "attending": True,
+            "seats_requested": 1, "email_opt_in": True})
+        check("6.3 opted-in RSVP accepted", s == 200 and json.loads(r63).get("status") == "accepted", f"{s} {r63[:100]}")
+        conf = _confirm_logs("confirm-once@example.com")
+        check(
+            "confirmation recorded as sent via a named provider",
+            len(conf) == 1 and conf[0]["status"] == "sent" and bool(conf[0]["provider"]),
+            str(conf[:1]),
+        )
+        check("sent confirmation exposes provider_message_id + no skip reason",
+              conf and bool(conf[0].get("provider_message_id")) and not conf[0].get("reason"),
+              str(conf[:1]))
+
+        # Re-submit the SAME RSVP -> second confirmation is skipped as duplicate.
+        post(f"/api/invites/{tok63}/rsvp", {
+            "full_name": "Confirm Once", "phone": "+2347799000063",
+            "email": "confirm-once@example.com", "attending": True,
+            "seats_requested": 1, "email_opt_in": True})
+        conf2 = _confirm_logs("confirm-once@example.com")
+        sent = [i for i in conf2 if i["status"] == "sent"]
+        dup = [i for i in conf2 if i["status"] == "skipped"]
+        check("identical re-submit does not send a second confirmation", len(sent) == 1, f"sent={len(sent)}")
+        check(
+            "duplicate re-submit is skipped with a clear reason",
+            dup and any("already sent" in (i.get("reason") or "").lower() for i in dup),
+            str(dup[:1]),
+        )
+
+        # Opted-out RSVP -> skipped with a clear consent reason.
+        post(f"/api/invites/{tok63}/rsvp", {
+            "full_name": "No Consent 63", "phone": "+2347799000064",
+            "email": "noconsent63@example.com", "attending": True,
+            "seats_requested": 1, "email_opt_in": False})
+        nc = _confirm_logs("noconsent63@example.com")
+        check(
+            "no-consent confirmation skipped with an opt-in reason",
+            nc and nc[0]["status"] == "skipped" and "opt in" in (nc[0].get("reason") or "").lower(),
+            str(nc[:1]),
+        )
+
+        # Admin resend forces a send even though one was already delivered.
+        _, found = jget(f"/api/admin/rsvps?event_id={e63}&search=confirm-once@example.com", token)
+        if found:
+            s, rr = post(f"/api/admin/rsvps/{found[0]['id']}/resend-confirmation", {}, token)
+            check("admin resend confirmation succeeds (sent)",
+                  s == 200 and json.loads(rr)["status"] == "sent", f"{s} {rr[:80]}")
+
+        _, allog = jget(f"/api/admin/communications/logs?event_id={e63}&limit=500", token)
+        check("6.3 comms logs expose no provider secret",
+              "bearer" not in json.dumps(allog).lower()
+              and "resend_api_key" not in json.dumps(allog).lower())
 
     # --- Phase 3.5: login rate limiting (run last) -----------------------
     brute = {"email": "bruteforce@gatherarc.com", "password": "wrongwrong"}

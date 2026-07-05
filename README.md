@@ -279,6 +279,24 @@ refuses to boot if a live provider is selected but its credentials are missing.
 The API key is server-only: never sent to the frontend, never returned by the
 API, never written to the communication log.
 
+> **Live delivery gotcha:** if `EMAIL_BACKEND` is left as `console` in
+> production, confirmations/reminders are only *logged*, never delivered — the
+> Communications log shows them as `sent` via the **`console`** provider.
+> Validate the live config (and optionally send one test email) with:
+>
+> ```bash
+> cd backend
+> python -m scripts.validate_email                       # read-only config check
+> python -m scripts.validate_email --send-to me@you.com  # send ONE test email
+> ```
+>
+> It prints a masked summary (never the API key), warns when production is still
+> on `console`, and exits non-zero on a real misconfiguration or failed send.
+> Delivery outcomes are recorded per-message with a **provider**, a sanitized
+> **skip/failure reason** (e.g. *Guest did not opt in*, *Sender address or domain
+> is not verified*) and a `provider_message_id` — visible on the admin
+> Communications page.
+
 ### Consent
 
 Guests are never emailed without **both** an address **and** an explicit opt-in:
@@ -508,6 +526,18 @@ python -m scripts.validate_storage --write-test  # also upload + delete a probe 
 
 It prints only masked summaries (never the service-role key) and exits non-zero
 on the first failure, naming the sanitized category (e.g. `bucket_not_found`).
+
+**Validate email delivery** (confirms the backend + credentials, warns on a
+`console` backend in production, and optionally sends one test email):
+
+```bash
+cd backend
+python -m scripts.validate_email                       # read-only config check
+python -m scripts.validate_email --send-to me@you.com  # send ONE test email
+```
+
+No email is sent without an explicit `--send-to` recipient; the API key is never
+printed.
 
 The API port is a uvicorn flag (`--port 8010` / `$PORT`), not an env var. See
 **[DEPLOYMENT.md](DEPLOYMENT.md)** for the full production guide.
