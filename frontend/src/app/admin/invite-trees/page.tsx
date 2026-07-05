@@ -16,6 +16,7 @@ import type { EventAdmin, InviteTree } from "@/lib/types";
 import { useEvents } from "@/components/admin/event-context";
 import { useCanEdit } from "@/components/admin/auth-context";
 import { EmptyEventState } from "@/components/admin/EmptyEventState";
+import { AvailabilityNotice } from "@/components/admin/AvailabilityNotice";
 import { InviteTreeShare } from "@/components/admin/InviteTreeShare";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm";
@@ -278,7 +279,15 @@ function TreeCard({
   function copyLink() {
     navigator.clipboard.writeText(tree.invite_url).then(() => {
       setCopied(true);
-      toast.success("Invite link copied.");
+      // Warn if the link is copied while it can't actually accept RSVPs, so an
+      // admin doesn't share a link guests will see as closed.
+      if (tree.accepting_rsvps) {
+        toast.success("Invite link copied.");
+      } else {
+        toast.error(
+          `Link copied, but this invite is not accepting RSVPs (${tree.availability_label}). Guests will see it as closed.`
+        );
+      }
       setTimeout(() => setCopied(false), 1500);
     });
   }
@@ -310,6 +319,16 @@ function TreeCard({
             />
           </div>
         </div>
+
+        {/* Availability: warn before an admin shares a link that can't accept
+            RSVPs (event draft/closed, deadline passed, or this tree paused). */}
+        {!tree.accepting_rsvps && (
+          <AvailabilityNotice
+            accepting={false}
+            label={tree.availability_label}
+            reason={tree.availability_reason}
+          />
+        )}
 
         {/* Invite link */}
         <div className="flex items-center gap-2">

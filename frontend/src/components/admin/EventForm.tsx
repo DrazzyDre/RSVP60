@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { useRef, useState } from "react";
-import { ImagePlus, Loader2, Trash2, UploadCloud } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ImagePlus, Loader2, Trash2, UploadCloud, X } from "lucide-react";
 import { api, ApiError, resolveMediaUrl } from "@/lib/api";
 import { useUnsavedChanges } from "@/lib/hooks";
 import { useConfirm } from "@/components/ui/confirm";
@@ -48,6 +48,30 @@ const BACKGROUND_PRESETS: { value: BackgroundPreset; label: string }[] = [
   { value: "plain", label: "Plain" },
   { value: "festive", label: "Festive" },
 ];
+
+// Client-side mirror of the backend flyer rules (app/storage.py + config).
+const FLYER_ACCEPT = "image/jpeg,image/png,image/webp";
+const FLYER_MAX_BYTES = 5 * 1024 * 1024; // 5 MB
+
+// Metadata passed back to the parent after a create, so it can warn when the
+// event was created but its flyer could not be uploaded (without duplicating it).
+export type EventSaveMeta = {
+  flyerUploadFailed?: boolean;
+  flyerUploadError?: string;
+};
+
+// Validate a picked flyer the same way the backend will, so we fail fast with a
+// clear message instead of a round-trip. Returns an error string, or null if OK.
+function validateFlyer(file: File): string | null {
+  const type = file.type.toLowerCase();
+  if (!["image/jpeg", "image/jpg", "image/png", "image/webp"].includes(type)) {
+    return "Unsupported image type. Please choose a JPG, PNG or WebP image.";
+  }
+  if (file.size > FLYER_MAX_BYTES) {
+    return "Image is too large. The maximum size is 5 MB.";
+  }
+  return null;
+}
 
 // ISO (UTC) -> value for <input type="datetime-local"> in local time.
 function toLocalInput(iso: string | null): string {
@@ -132,7 +156,7 @@ export function EventForm({
   onCancel,
 }: {
   event?: EventAdmin | null;
-  onSaved: (e: EventAdmin) => void;
+  onSaved: (e: EventAdmin, meta?: EventSaveMeta) => void;
   onCancel: () => void;
 }) {
   const confirm = useConfirm();
@@ -141,6 +165,37 @@ export function EventForm({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Create mode only: a flyer selected up-front and uploaded automatically right
+  // after the event is created (once it has an id). Held in memory until submit.
+  const [flyerFile, setFlyerFile] = useState<File | null>(null);
+  const [flyerPreview, setFlyerPreview] = useState<string | null>(null);
+  const [flyerError, setFlyerError] = useState<string | null>(null);
+
+  // Revoke the object-URL preview when the file changes / on unmount.
+  useEffect(() => {
+    if (!flyerFile) {
+      setFlyerPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(flyerFile);
+    setFlyerPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [flyerFile]);
+
+  function pickFlyer(file: File | null) {
+    setFlyerError(null);
+    if (!file) {
+      setFlyerFile(null);
+      return;
+    }
+    const err = validateFlyer(file);
+    if (err) {
+      setFlyerError(err);
+      return;
+    }
+    setFlyerFile(file);
+  }
 
   // Warn on tab close / reload while there are meaningful unsaved edits (but not
   // after a successful save, which navigates away intentionally).
@@ -162,17 +217,63 @@ export function EventForm({
       event_date: fromLocalInput(form.event_date),
       rsvp_deadline: fromLocalInput(form.rsvp_deadline),
     };
+
+    // --- Edit: single PATCH, unchanged behaviour. ------------------------
+    if (event) {
+      try {
+        const savedEvent = await api.patch<EventAdmin>(
+          `/api/admin/events/${event.id}`,
+          payload
+        );
+        setSaved(true); // disables the unsaved-changes guard before navigating
+        onSaved(savedEvent);
+      } catch (err) {
+        // Entered values are preserved so the user can correct and retry.
+        setError(err instanceof ApiError ? err.message : "Could not save event.");
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
+    // --- Create: create the event first, then upload the flyer (if any). --
+    // The two-step nature is invisible to the user — it feels like one action.
+    let created: EventAdmin;
     try {
-      const savedEvent = event
-        ? await api.patch<EventAdmin>(`/api/admin/events/${event.id}`, payload)
-        : await api.post<EventAdmin>("/api/admin/events", payload, true);
-      setSaved(true); // disables the unsaved-changes guard before navigating
-      onSaved(savedEvent);
+      created = await api.post<EventAdmin>("/api/admin/events", payload, true);
     } catch (err) {
-      // Entered values are preserved so the user can correct and retry.
+      // Creation failed: never attempt the flyer upload; keep the entered
+      // details and the selected file so the user can fix and retry.
       setError(err instanceof ApiError ? err.message : "Could not save event.");
-    } finally {
       setSaving(false);
+      return;
+    }
+
+    // Event exists now — disable the unsaved-changes guard before navigating.
+    setSaved(true);
+    if (!flyerFile) {
+      setSaving(false);
+      onSaved(created);
+      return;
+    }
+
+    try {
+      const fd = new FormData();
+      fd.append("file", flyerFile);
+      const withFlyer = await api.upload<EventAdmin>(
+        `/api/admin/events/${created.id}/flyer`,
+        fd
+      );
+      setSaving(false);
+      onSaved(withFlyer);
+    } catch (err) {
+      // The event was created successfully — do NOT recreate it. Hand it back
+      // with a flyer-failure flag so the parent keeps it, selects it, and warns
+      // with a retry path (retrying uploads to this same event, no duplicate).
+      const msg =
+        err instanceof ApiError ? err.message : "The flyer could not be uploaded.";
+      setSaving(false);
+      onSaved(created, { flyerUploadFailed: true, flyerUploadError: msg });
     }
   }
 
@@ -325,9 +426,12 @@ export function EventForm({
         {event ? (
           <FlyerUpload event={event} />
         ) : (
-          <p className="text-xs text-muted-foreground">
-            Save the event first, then reopen it to upload a flyer image.
-          </p>
+          <PendingFlyerPicker
+            preview={flyerPreview}
+            fileName={flyerFile?.name ?? null}
+            error={flyerError}
+            onSelect={pickFlyer}
+          />
         )}
         <Field label="Or paste an external image URL (used if no file is uploaded)">
           <Input
@@ -511,8 +615,85 @@ function Field({
   );
 }
 
+// Create-mode flyer chooser: selects a file and previews it locally. Nothing is
+// uploaded until the event is created (EventForm handles the upload afterwards).
+function PendingFlyerPicker({
+  preview,
+  fileName,
+  error,
+  onSelect,
+}: {
+  preview: string | null;
+  fileName: string | null;
+  error: string | null;
+  onSelect: (file: File | null) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <div className="space-y-3">
+      {preview ? (
+        <div className="relative overflow-hidden rounded-lg border bg-white">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={preview}
+            alt="Selected flyer preview"
+            className="max-h-64 w-full object-contain"
+          />
+        </div>
+      ) : (
+        <div className="flex h-32 items-center justify-center rounded-lg border border-dashed bg-white text-muted-foreground">
+          <ImagePlus className="mr-2 h-5 w-5" /> No flyer selected yet
+        </div>
+      )}
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept={FLYER_ACCEPT}
+        onChange={(e) => {
+          onSelect(e.target.files?.[0] ?? null);
+          if (inputRef.current) inputRef.current.value = "";
+        }}
+        className="hidden"
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => inputRef.current?.click()}
+        >
+          <UploadCloud className="h-4 w-4" />
+          {fileName ? "Choose a different image" : "Choose flyer image"}
+        </Button>
+        {fileName && (
+          <>
+            <span className="truncate text-xs text-muted-foreground" title={fileName}>
+              {fileName}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onSelect(null)}
+            >
+              <X className="h-4 w-4" /> Clear
+            </Button>
+          </>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        JPG, PNG or WebP · up to 5&nbsp;MB. It uploads automatically when you
+        create the event. Uploaded images take priority over the URL below.
+      </p>
+      {error && <p className="text-sm text-red-600">{error}</p>}
+    </div>
+  );
+}
+
 // Upload / preview / replace / remove the event flyer image.
-function FlyerUpload({ event }: { event: EventAdmin }) {
+export function FlyerUpload({ event }: { event: EventAdmin }) {
   const toast = useToast();
   const confirm = useConfirm();
   const [imageUrl, setImageUrl] = useState(event.flyer_image_url);

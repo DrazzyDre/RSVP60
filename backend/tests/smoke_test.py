@@ -66,6 +66,13 @@ Phase 5.6 additions (event creation):
   * creation validates the required name; new events default to "draft"
   * a new event is empty and event-scoped and does not disturb other events
 
+Phase 6.1 additions (RSVP availability reasons):
+  * admin event/tree payloads expose accepting_rsvps + a machine + human reason
+  * draft/closed events and paused trees report the correct closure reason
+  * a past deadline (auto-close) closes RSVPs; disabling auto-close reopens them
+  * event-level availability ignores per-tree pauses; public payload hides the
+    internal reason (guests only see the boolean)
+
 Requires the owner/admin/viewer accounts created by app.seed.
 Uses only the Python standard library (no extra deps).
 """
@@ -853,6 +860,112 @@ def main() -> int:
             postB["total_allocated_seats"] == preB["total_allocated_seats"]
             and postB["total_rsvps"] == preB["total_rsvps"],
         )
+
+    # --- Phase 6.1: RSVP availability reasons + public payload safety -----
+    _, evB61 = jget(f"/api/admin/events/{B}", token)
+    check(
+        "admin event exposes availability fields",
+        "accepting_rsvps" in evB61
+        and "availability_reason" in evB61
+        and "availability_label" in evB61,
+        str([k for k in ("accepting_rsvps", "availability_reason") if k not in evB61]),
+    )
+
+    s, rawa = post("/api/admin/events", {"name": "Availability Probe"}, otok)
+    check("create availability probe event (201)", s == 201, f"{s} {rawa[:100]}")
+    aid = json.loads(rawa)["id"] if s == 201 else None
+    if aid:
+        _, aev = jget(f"/api/admin/events/{aid}", token)
+        check(
+            "draft event -> not accepting + event_draft reason",
+            aev["accepting_rsvps"] is False
+            and aev["availability_reason"] == "event_draft",
+            str({k: aev.get(k) for k in ("accepting_rsvps", "availability_reason")}),
+        )
+
+        patch(f"/api/admin/events/{aid}", {"status": "active"}, token)
+        _, aev = jget(f"/api/admin/events/{aid}", token)
+        check(
+            "active event -> accepting",
+            aev["accepting_rsvps"] is True and aev["availability_reason"] == "accepting",
+            str(aev.get("availability_reason")),
+        )
+
+        s, rawt = post(
+            "/api/admin/invite-trees",
+            {"event_id": aid, "name": "Probe Tree", "allocated_seats": 5, "max_extra_guests": 0},
+            token,
+        )
+        atree = json.loads(rawt) if s == 201 else {}
+        atok, atid = atree.get("token"), atree.get("id")
+        check(
+            "new tree is accepting + carries availability fields",
+            s == 201
+            and atree.get("accepting_rsvps") is True
+            and atree.get("availability_reason") == "accepting",
+            f"{s} {rawt[:100]}",
+        )
+
+        if atid:
+            patch(f"/api/admin/invite-trees/{atid}", {"status": "paused"}, token)
+            t = tree_by_name(token, aid, "Probe Tree")
+            check(
+                "paused tree -> tree_paused",
+                t["accepting_rsvps"] is False
+                and t["availability_reason"] == "tree_paused",
+                str(t.get("availability_reason")),
+            )
+            _, aev = jget(f"/api/admin/events/{aid}", token)
+            check(
+                "event-level availability ignores per-tree pause",
+                aev["accepting_rsvps"] is True,
+                str(aev.get("availability_reason")),
+            )
+            patch(f"/api/admin/invite-trees/{atid}", {"status": "active"}, token)
+
+        # Timezone-safe deadline handling: a clearly-past deadline closes RSVPs.
+        patch(
+            f"/api/admin/events/{aid}",
+            {"rsvp_deadline": "2000-01-01T12:00:00", "auto_close_rsvp": True},
+            token,
+        )
+        _, aev = jget(f"/api/admin/events/{aid}", token)
+        check(
+            "past deadline + auto_close -> deadline_passed",
+            aev["accepting_rsvps"] is False
+            and aev["availability_reason"] == "deadline_passed",
+            str(aev.get("availability_reason")),
+        )
+        if atok:
+            _, pubprobe = jget(f"/api/invites/{atok}")
+            check("public invite closed by deadline", pubprobe["accepting_rsvps"] is False)
+            check(
+                "public invite hides internal availability reason",
+                "availability_reason" not in json.dumps(pubprobe),
+            )
+
+        patch(f"/api/admin/events/{aid}", {"auto_close_rsvp": False}, token)
+        _, aev = jget(f"/api/admin/events/{aid}", token)
+        check(
+            "auto_close off reopens despite past deadline",
+            aev["accepting_rsvps"] is True,
+            str(aev.get("availability_reason")),
+        )
+
+        patch(f"/api/admin/events/{aid}", {"status": "closed"}, token)
+        _, aev = jget(f"/api/admin/events/{aid}", token)
+        check(
+            "closed event -> event_closed",
+            aev["accepting_rsvps"] is False
+            and aev["availability_reason"] == "event_closed",
+            str(aev.get("availability_reason")),
+        )
+        if atok:
+            s, _ = post(
+                f"/api/invites/{atok}/rsvp",
+                {"full_name": "Probe", "phone": "+2348000000123", "attending": True},
+            )
+            check("closed event rejects public RSVP (409)", s == 409, str(s))
 
     # --- Phase 3.5: login rate limiting (run last) -----------------------
     brute = {"email": "bruteforce@gatherarc.com", "password": "wrongwrong"}

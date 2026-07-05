@@ -78,6 +78,10 @@ export interface EventAdmin {
   tree_count: number;
   rsvp_count: number;
   confirmed_seats: number;
+  // Event-level RSVP availability (ignores per-tree pauses).
+  accepting_rsvps: boolean;
+  availability_reason: string;
+  availability_label: string;
   created_at: string;
   updated_at: string;
 }
@@ -142,6 +146,10 @@ export interface InviteTree {
   remaining_seats: number;
   rsvp_count: number;
   invite_url: string;
+  // Whether guests using THIS tree's link can currently RSVP, and why not.
+  accepting_rsvps: boolean;
+  availability_reason: string;
+  availability_label: string;
   created_at: string;
   updated_at: string;
 }

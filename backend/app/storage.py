@@ -12,12 +12,16 @@ Two backends selected by ``STORAGE_BACKEND``:
 
 The router code depends only on the small ``StorageBackend`` interface, so
 swapping backends never touches business logic.
+
+Failures raise ``StorageError`` carrying a *sanitized category* (never the raw
+provider response, auth header or service-role key) so operators can diagnose a
+misconfiguration from the logs while guests only ever see a generic message.
 """
 
 from __future__ import annotations
 
 import logging
-import os
+import socket
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -35,9 +39,53 @@ ALLOWED_IMAGE_TYPES: dict[str, str] = {
     "image/webp": "webp",
 }
 
+# --- Sanitized failure categories ------------------------------------------- #
+# Stable, non-sensitive strings used in logs and mapped to safe admin messages.
+BUCKET_NOT_FOUND = "bucket_not_found"
+STORAGE_AUTH_FAILED = "storage_authentication_failed"
+STORAGE_PERMISSION_DENIED = "storage_permission_denied"
+STORAGE_TIMEOUT = "storage_timeout"
+STORAGE_PROVIDER_ERROR = "storage_provider_error"
+INVALID_FILE = "invalid_file"
+UPLOAD_TOO_LARGE = "upload_too_large"
+
 
 class StorageError(RuntimeError):
-    """Raised when a storage backend cannot complete an operation."""
+    """Raised when a storage backend cannot complete an operation.
+
+    ``category`` is one of the sanitized constants above; ``status_code`` is the
+    provider HTTP status when known. Neither field ever carries secrets or the
+    raw provider body.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        category: str = STORAGE_PROVIDER_ERROR,
+        status_code: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.category = category
+        self.status_code = status_code
+
+
+def classify_http_status(code: int | None, body_snippet: str = "") -> str:
+    """Map a provider HTTP status (+ a short, already-sanitized body hint) to a
+    sanitized failure category. Never receives or returns secrets."""
+    hint = (body_snippet or "").lower()
+    if code in (401,):
+        return STORAGE_AUTH_FAILED
+    if code in (403,):
+        return STORAGE_PERMISSION_DENIED
+    if code in (404,):
+        return BUCKET_NOT_FOUND
+    if code in (413,):
+        return UPLOAD_TOO_LARGE
+    # Supabase returns 400 with a "Bucket not found" message when the bucket
+    # name does not exist — surface that specific, common misconfiguration.
+    if code == 400 and ("bucket not found" in hint or "not_found" in hint):
+        return BUCKET_NOT_FOUND
+    return STORAGE_PROVIDER_ERROR
 
 
 class StorageBackend(Protocol):
@@ -64,7 +112,7 @@ class LocalStorage:
         target = (self.base / key).resolve()
         base = self.base.resolve()
         if base not in target.parents and target != base:
-            raise StorageError("Invalid storage key.")
+            raise StorageError("Invalid storage key.", category=INVALID_FILE)
         return target
 
     def save(self, key: str, data: bytes, content_type: str) -> None:
@@ -82,6 +130,19 @@ class LocalStorage:
     def url(self, key: str) -> str:
         return f"{_media_prefix()}/media/{key}"
 
+    def check_reachable(self) -> None:
+        """Confirm the upload directory exists and is writable (validation)."""
+        try:
+            self.base.mkdir(parents=True, exist_ok=True)
+            probe = self.base / ".write_probe"
+            probe.write_bytes(b"ok")
+            probe.unlink(missing_ok=True)
+        except OSError as exc:
+            raise StorageError(
+                f"Upload directory is not writable: {self.base}",
+                category=STORAGE_PROVIDER_ERROR,
+            ) from exc
+
 
 class SupabaseStorage:
     """Store files in a Supabase Storage bucket via the REST API."""
@@ -90,14 +151,50 @@ class SupabaseStorage:
         if not base_url or not service_key:
             raise StorageError(
                 "STORAGE_BACKEND=supabase requires SUPABASE_URL and "
-                "SUPABASE_SERVICE_ROLE_KEY to be set."
+                "SUPABASE_SERVICE_ROLE_KEY to be set.",
+                category=STORAGE_PROVIDER_ERROR,
             )
         self.base_url = base_url.rstrip("/")
         self.service_key = service_key
         self.bucket = bucket
 
+    def _auth_headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self.service_key}",
+            "apikey": self.service_key,
+        }
+
     def _object_url(self, key: str) -> str:
         return f"{self.base_url}/storage/v1/object/{self.bucket}/{key}"
+
+    def _bucket_info_url(self) -> str:
+        return f"{self.base_url}/storage/v1/bucket/{self.bucket}"
+
+    def _raise_http(self, exc: urllib.error.HTTPError, op: str) -> None:
+        # Read a SHORT, sanitized snippet only to classify the failure. It is
+        # never logged or returned to the client (which sees a generic message).
+        try:
+            snippet = exc.read().decode("utf-8", "replace")[:200]
+        except Exception:  # pragma: no cover - defensive
+            snippet = ""
+        category = classify_http_status(exc.code, snippet)
+        # Log status + category only — never headers (they carry the key) or body.
+        logger.warning(
+            "Supabase %s failed: status=%s category=%s", op, exc.code, category
+        )
+        raise StorageError(
+            f"Supabase {op} failed ({exc.code}).",
+            category=category,
+            status_code=exc.code,
+        ) from exc
+
+    def _raise_url_error(self, exc: urllib.error.URLError, op: str) -> None:
+        timed_out = isinstance(exc.reason, (TimeoutError, socket.timeout))
+        category = STORAGE_TIMEOUT if timed_out else STORAGE_PROVIDER_ERROR
+        logger.warning("Supabase %s error: category=%s", op, category)
+        raise StorageError(
+            f"Supabase {op} failed: network error.", category=category
+        ) from exc
 
     def save(self, key: str, data: bytes, content_type: str) -> None:
         req = urllib.request.Request(
@@ -105,8 +202,7 @@ class SupabaseStorage:
             data=data,
             method="POST",
             headers={
-                "Authorization": f"Bearer {self.service_key}",
-                "apikey": self.service_key,
+                **self._auth_headers(),
                 "Content-Type": content_type,
                 # Overwrite if the object already exists (flyer replace).
                 "x-upsert": "true",
@@ -116,23 +212,15 @@ class SupabaseStorage:
             with urllib.request.urlopen(req):
                 pass
         except urllib.error.HTTPError as exc:  # pragma: no cover - network
-            # Log status only (never the request headers, which carry the key).
-            logger.warning("Supabase upload failed: HTTP %s", exc.code)
-            raise StorageError(
-                f"Supabase upload failed ({exc.code}): {exc.read().decode()[:200]}"
-            ) from exc
+            self._raise_http(exc, "upload")
         except urllib.error.URLError as exc:  # pragma: no cover - network
-            logger.warning("Supabase upload error: %s", exc.reason)
-            raise StorageError(f"Supabase upload failed: {exc.reason}") from exc
+            self._raise_url_error(exc, "upload")
 
     def delete(self, key: str) -> None:
         req = urllib.request.Request(
             self._object_url(key),
             method="DELETE",
-            headers={
-                "Authorization": f"Bearer {self.service_key}",
-                "apikey": self.service_key,
-            },
+            headers=self._auth_headers(),
         )
         try:
             with urllib.request.urlopen(req):
@@ -146,6 +234,23 @@ class SupabaseStorage:
         if prefix:
             return f"{prefix}/{key}"
         return f"{self.base_url}/storage/v1/object/public/{self.bucket}/{key}"
+
+    def check_reachable(self) -> None:
+        """Confirm the bucket exists / is reachable with the current key.
+
+        Used by the storage-validation command. Raises ``StorageError`` with a
+        sanitized category on failure; returns ``None`` when the bucket resolves.
+        """
+        req = urllib.request.Request(
+            self._bucket_info_url(), method="GET", headers=self._auth_headers()
+        )
+        try:
+            with urllib.request.urlopen(req):
+                return None
+        except urllib.error.HTTPError as exc:  # pragma: no cover - network
+            self._raise_http(exc, "bucket check")
+        except urllib.error.URLError as exc:  # pragma: no cover - network
+            self._raise_url_error(exc, "bucket check")
 
 
 def get_storage() -> StorageBackend:

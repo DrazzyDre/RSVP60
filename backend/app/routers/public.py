@@ -1,12 +1,12 @@
 """Public, unauthenticated guest invite + RSVP endpoints."""
 
 import logging
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..availability import evaluate as evaluate_availability
 from ..database import get_db
 from ..email import service as email_service
 from ..models import InviteTree, Rsvp
@@ -44,23 +44,14 @@ def _get_tree_by_token(db: Session, token: str) -> InviteTree:
 
 
 def _is_accepting(tree: InviteTree, event) -> bool:
-    """RSVPs are open only when the tree is active, the event is active, and —
-    when auto-close is enabled — the RSVP deadline (if any) has not passed.
+    """Whether this invite can currently accept RSVPs.
 
-    When ``auto_close_rsvp`` is False the deadline is informational only and the
-    RSVP form stays open past it.
+    Timezone-safe deadline handling and the per-reason breakdown live in
+    ``app.availability`` (the single source of truth shared with the admin UI).
+    Tree exhaustion is intentionally NOT a closure — a full tree still accepts
+    and the guest is waitlisted by ``seat_logic``.
     """
-    if tree.status == "paused":
-        return False
-    if event.status != "active":
-        return False
-    if (
-        event.auto_close_rsvp
-        and event.rsvp_deadline
-        and datetime.utcnow() > event.rsvp_deadline
-    ):
-        return False
-    return True
+    return evaluate_availability(event, tree).accepting
 
 
 @router.get("/{token}", response_model=InvitePublic)

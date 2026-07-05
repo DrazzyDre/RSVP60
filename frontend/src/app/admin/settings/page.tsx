@@ -20,6 +20,8 @@ import type { Admin } from "@/lib/types";
 import { useEvents } from "@/components/admin/event-context";
 import { useCanEdit } from "@/components/admin/auth-context";
 import { EventReadiness } from "@/components/admin/EventReadiness";
+import { AvailabilityNotice } from "@/components/admin/AvailabilityNotice";
+import { FlyerUpload } from "@/components/admin/EventForm";
 import { PreviewInviteButton } from "@/components/admin/PreviewInviteButton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -85,6 +87,12 @@ export default function SettingsPage() {
               <Row label="Status">
                 <span className="capitalize">{selectedEvent.status}</span>
               </Row>
+              <AvailabilityNotice
+                accepting={selectedEvent.accepting_rsvps}
+                label={selectedEvent.availability_label}
+                reason={selectedEvent.availability_reason}
+                className="mt-1"
+              />
               <Link href="/admin/events">
                 <Button variant="outline" size="sm" className="mt-2">
                   Edit event details
@@ -122,6 +130,21 @@ export default function SettingsPage() {
               </Button>
             </Link>
             <PreviewInviteButton eventId={selectedEvent.id} label="Preview public invite" />
+          </CardContent>
+        </Card>
+      )}
+
+      {selectedEvent && canEdit && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Event flyer</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Upload, replace or remove the flyer for {selectedEvent.name}. If a
+              flyer failed to upload while creating the event, add it here.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <FlyerUpload key={selectedEvent.id} event={selectedEvent} />
           </CardContent>
         </Card>
       )}

@@ -6,7 +6,7 @@ import { ChevronRight, ShieldAlert } from "lucide-react";
 import type { EventAdmin } from "@/lib/types";
 import { useEvents } from "@/components/admin/event-context";
 import { useCanEdit } from "@/components/admin/auth-context";
-import { EventForm } from "@/components/admin/EventForm";
+import { EventForm, type EventSaveMeta } from "@/components/admin/EventForm";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,13 +17,23 @@ export default function NewEventPage() {
   const { refreshEvents, setSelectedEventId } = useEvents();
   const toast = useToast();
 
-  async function handleSaved(saved: EventAdmin) {
+  async function handleSaved(saved: EventAdmin, meta?: EventSaveMeta) {
     // The new event immediately becomes the selected/current event and appears
     // in the switcher, then we send the admin to finish setup on the readiness
     // page — no full refresh needed for it to show up.
     await refreshEvents();
     setSelectedEventId(saved.id);
-    toast.success(`“${saved.name}” created — finish setting it up below.`);
+    if (meta?.flyerUploadFailed) {
+      // The event WAS created and is kept + selected — only the flyer failed.
+      // Send them to Settings where the flyer can be retried (no duplicate event).
+      toast.error(
+        `“${saved.name}” was created, but the flyer couldn’t be uploaded${
+          meta.flyerUploadError ? ` (${meta.flyerUploadError})` : ""
+        }. Add it from the event’s flyer section below.`
+      );
+    } else {
+      toast.success(`“${saved.name}” created — finish setting it up below.`);
+    }
     router.push("/admin/settings");
   }
 

@@ -43,7 +43,8 @@ services:
       - key: SUPABASE_SERVICE_ROLE_KEY   # server-only secret
         sync: false
       - key: SUPABASE_STORAGE_BUCKET
-        value: flyers
+        # Must EXACTLY match an existing PUBLIC bucket in the Supabase project.
+        value: gatherarc-flyers
       - key: EMAIL_BACKEND
         value: resend
       - key: EMAIL_FROM_ADDRESS    # a verified Resend sender

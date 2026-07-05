@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   Armchair,
   CalendarPlus,
-  CheckCircle2,
   ChevronRight,
   ListTree,
   Pencil,
@@ -15,6 +14,7 @@ import type { EventAdmin } from "@/lib/types";
 import { useEvents } from "@/components/admin/event-context";
 import { useCanEdit } from "@/components/admin/auth-context";
 import { EventForm } from "@/components/admin/EventForm";
+import { AvailabilityNotice } from "@/components/admin/AvailabilityNotice";
 import { PreviewInviteButton } from "@/components/admin/PreviewInviteButton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -186,11 +186,12 @@ function EventCard({
             No invite trees yet — add one to start collecting RSVPs.
           </p>
         )}
-        {ev.status === "draft" && (
-          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            Draft — not accepting public RSVPs until set to <strong>active</strong>.
-          </p>
+        {!ev.accepting_rsvps && (
+          <AvailabilityNotice
+            accepting={false}
+            label={ev.availability_label}
+            reason={ev.availability_reason}
+          />
         )}
 
         <div className="flex flex-wrap gap-2">

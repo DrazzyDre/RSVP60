@@ -20,7 +20,8 @@ integration checklists and recovery procedures.
 ## 1. Recommended deployment order
 
 1. **Supabase** — create the project (Postgres) and a **public** Storage bucket
-   named `flyers`. Copy the connection string, project URL, and service-role key.
+   named `gatherarc-flyers` (must match `SUPABASE_STORAGE_BUCKET` exactly). Copy
+   the connection string, project URL, and service-role key.
 2. **Resend** — verify a sender domain/address, create an API key.
 3. **Backend** (Render/Railway) — deploy with all env vars set (below). The start
    command applies migrations then serves. Confirm `/api/health` and `/api/ready`.
@@ -36,7 +37,8 @@ Do a **pilot** pass in a dedicated staging project (name it *GatherArc Pilot* /
 production. Use the one-page gate in [`GO_LIVE_CHECKLIST.md`](./GO_LIVE_CHECKLIST.md).
 
 1. Create/configure the pilot Supabase project (Postgres).
-2. Configure the Supabase Storage `flyers` bucket (public).
+2. Configure the Supabase Storage `gatherarc-flyers` bucket (public); validate
+   it with `python -m scripts.validate_storage --write-test`.
 3. Configure and verify the Resend sender/domain.
 4. Deploy the backend.
 5. Apply Alembic migrations (`alembic upgrade head` — the start command does this).
@@ -213,14 +215,42 @@ Never point destructive commands at live data.
 
 ## 9. Supabase Storage — manual smoke checklist
 
-Use a dedicated **test event** so nothing touches real flyers.
+GatherArc flyer storage env (set on the **backend/Render only** — never Vercel):
 
-- [ ] Bucket `flyers` exists and is **public** (matches the public-image design).
+```env
+STORAGE_BACKEND=supabase
+SUPABASE_URL=https://<PROJECT_REF>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<SERVER_SIDE_SECRET_KEY>
+SUPABASE_STORAGE_BUCKET=gatherarc-flyers
+```
+
+- The bucket must **already exist**, be **public**, and its name must match
+  `SUPABASE_STORAGE_BUCKET` **exactly** (a mismatch → `bucket_not_found`).
+- The service-role key is a **server-only secret** — never expose it to the
+  frontend or any `NEXT_PUBLIC_*` variable.
+- Environment changes require a **backend redeploy** to take effect.
+
+First, validate the configuration from the **Render Shell** (no real data touched):
+
+```bash
+python -m scripts.validate_storage               # confirms the bucket is reachable
+python -m scripts.validate_storage --write-test  # uploads + deletes a probe object
+```
+
+Then use a dedicated **test event** so nothing touches real flyers:
+
+- [ ] `validate_storage` (and `--write-test`) both pass.
+- [ ] Bucket `gatherarc-flyers` exists and is **public** (matches the public-image design).
+- [ ] Create an event **with a flyer in one step** (New event → choose flyer → Create)
+      → the event is created, selected, and the flyer resolves.
 - [ ] Upload a flyer on the test event → succeeds.
 - [ ] The returned `flyer_image_url` is a Supabase public URL and loads in a browser.
 - [ ] Replace the flyer → the new image resolves; the old object is overwritten/removed.
 - [ ] Delete the flyer → `flyer_storage_path` clears; the **public invite** falls back
       cleanly (no broken image).
+- [ ] Force a failure (e.g. wrong bucket name) → the backend log shows a **sanitized
+      category** (`bucket_not_found`), the admin sees a safe actionable message, and
+      the **service-role key never appears** in any log or response.
 - [ ] Inspect the public invite payload and page source — the **service-role key
       never appears** in any browser-visible response.
 

@@ -135,8 +135,14 @@ Storage is pluggable via `STORAGE_BACKEND`:
 - **`supabase`** — files are pushed to a Supabase Storage bucket. Set
   `STORAGE_BACKEND=supabase`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and
   (optionally) `SUPABASE_STORAGE_BUCKET`. Create a **public** bucket in Supabase
-  Storage named to match `SUPABASE_STORAGE_BUCKET` (default `flyers`). The app
-  refuses to boot in this mode until the URL and key are provided.
+  Storage whose name **exactly matches** `SUPABASE_STORAGE_BUCKET` (GatherArc
+  default `gatherarc-flyers`) — a mismatch surfaces as a `bucket_not_found`
+  upload failure. The app refuses to boot in this mode until the URL and key are
+  provided. Changing storage env vars requires a **backend redeploy**. Validate
+  before going live with `python -m scripts.validate_storage [--write-test]`
+  (see below). Upload failures are logged with a **sanitized category**
+  (`bucket_not_found`, `storage_authentication_failed`, …) — never the
+  service-role key or raw provider response.
 
 **All uploads are backend-only and validated server-side:** the type
 (JPG/PNG/WebP) and size (≤ `MAX_UPLOAD_BYTES`, 5 MB default) are enforced on the
@@ -472,7 +478,7 @@ convenience.)
 | `MEDIA_BASE_URL`                 | _(empty)_                     | Absolute prefix for media URLs. Empty → app-relative `/media/...`. |
 | `SUPABASE_URL`                   | _(empty)_                     | Supabase project URL (required when `STORAGE_BACKEND=supabase`).    |
 | `SUPABASE_SERVICE_ROLE_KEY`      | _(empty)_                     | Supabase **service role** key — **server-only secret**, never exposed to the frontend. Required for the supabase backend. |
-| `SUPABASE_STORAGE_BUCKET`        | `flyers`                      | Supabase Storage bucket name (create it as a **public** bucket).   |
+| `SUPABASE_STORAGE_BUCKET`        | `gatherarc-flyers`            | Supabase Storage bucket name — must **exactly match** an existing **public** bucket. |
 | `EMAIL_BACKEND`                  | `console`                     | `console` (log only, default) or `resend` (live transactional email). |
 | `EMAIL_FROM_ADDRESS`             | _(empty)_                     | From-address for outgoing mail. Required for a live provider.       |
 | `EMAIL_FROM_NAME`                | `GatherArc`                   | Display name on outgoing mail.                                      |
@@ -490,6 +496,18 @@ is empty, a wildcard, or localhost-only; `STORAGE_BACKEND=supabase` is missing
 cd backend
 APP_ENV=production python -m scripts.validate_prod_config   # masked summary + pass/fail
 ```
+
+**Validate flyer storage** separately (confirms the bucket exists / is reachable
+with the current credentials, before the first real upload):
+
+```bash
+cd backend
+python -m scripts.validate_storage               # read-only reachability check
+python -m scripts.validate_storage --write-test  # also upload + delete a probe object
+```
+
+It prints only masked summaries (never the service-role key) and exits non-zero
+on the first failure, naming the sanitized category (e.g. `bucket_not_found`).
 
 The API port is a uvicorn flag (`--port 8010` / `$PORT`), not an env var. See
 **[DEPLOYMENT.md](DEPLOYMENT.md)** for the full production guide.

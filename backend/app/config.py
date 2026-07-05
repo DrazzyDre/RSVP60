@@ -73,9 +73,12 @@ class Settings(BaseSettings):
     # Supabase Storage (only used when storage_backend == "supabase").
     # The service role key is a SERVER-ONLY secret — it is never sent to the
     # frontend and is used solely for backend upload/delete operations.
+    # SUPABASE_STORAGE_BUCKET must EXACTLY match an existing PUBLIC bucket in the
+    # Supabase project; a mismatch surfaces as a `bucket_not_found` upload
+    # failure. The default matches the branded bucket created for GatherArc.
     supabase_url: str = ""
     supabase_service_role_key: str = ""
-    supabase_storage_bucket: str = "flyers"
+    supabase_storage_bucket: str = "gatherarc-flyers"
 
     # Simple in-memory rate limit for public RSVP submissions (per client IP).
     rsvp_rate_limit_max: int = 8

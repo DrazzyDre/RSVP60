@@ -395,6 +395,11 @@ class EventAdminOut(BaseModel):
     tree_count: int = 0
     rsvp_count: int = 0
     confirmed_seats: int = 0
+    # Event-level RSVP availability (ignores per-tree pauses, which are per-tree).
+    # Lets admins see *why* an event's public invites are closed. Set by router.
+    accepting_rsvps: bool = True
+    availability_reason: str = "accepting"
+    availability_label: str = "Accepting RSVPs"
     created_at: datetime
     updated_at: datetime
 
@@ -429,6 +434,11 @@ class InviteTreeOut(BaseModel):
     remaining_seats: int
     rsvp_count: int
     invite_url: str
+    # Whether guests using THIS tree's link can currently RSVP, and why not.
+    # Combines the event status/deadline with this tree's own pause state.
+    accepting_rsvps: bool = True
+    availability_reason: str = "accepting"
+    availability_label: str = "Accepting RSVPs"
     created_at: datetime
     updated_at: datetime
 

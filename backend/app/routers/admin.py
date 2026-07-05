@@ -7,6 +7,7 @@ Everything below (trees, RSVPs, dashboard) is scoped to a single event via an
 import csv
 import io
 import json
+import logging
 from collections import defaultdict
 from datetime import datetime
 
@@ -24,6 +25,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from ..availability import evaluate as evaluate_availability
 from ..config import settings
 from ..database import get_db
 from ..deps import get_current_admin, log_action, require_editor, require_owner
@@ -37,6 +39,10 @@ from ..ratelimit import (
 from ..roles import OWNER
 from ..storage import (
     ALLOWED_IMAGE_TYPES,
+    BUCKET_NOT_FOUND,
+    STORAGE_AUTH_FAILED,
+    STORAGE_PERMISSION_DENIED,
+    STORAGE_TIMEOUT,
     StorageError,
     get_storage,
     resolve_flyer_url,
@@ -78,6 +84,8 @@ from ..seat_logic import computed_status, remaining_seats, used_seats
 from ..urls import invite_url as build_invite_url
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+logger = logging.getLogger("gatherarc.admin")
 
 
 # --------------------------------------------------------------------------- #
@@ -407,6 +415,12 @@ def _serialize_event(db: Session, event: Event) -> EventAdminOut:
     out.rsvp_count = rsvp_count
     out.confirmed_seats = confirmed_seats
     out.flyer_image_url = resolve_flyer_url(event.flyer_storage_path, event.flyer_url)
+    # Event-level availability (draft/closed/archived/deadline) — per-tree pauses
+    # are reported per tree, so evaluate without a specific tree here.
+    availability = evaluate_availability(event)
+    out.accepting_rsvps = availability.accepting
+    out.availability_reason = availability.reason
+    out.availability_label = availability.label
     return out
 
 
@@ -465,6 +479,53 @@ def update_event(
 # --------------------------------------------------------------------------- #
 # Flyer upload / removal
 # --------------------------------------------------------------------------- #
+# Safe, actionable admin-facing messages per sanitized storage-failure category.
+# These never contain secrets, env-var values or raw provider responses.
+_STORAGE_ERROR_MESSAGES: dict[str, str] = {
+    BUCKET_NOT_FOUND: (
+        "The configured flyer storage bucket was not found. Please check the "
+        "Storage bucket name in the backend configuration."
+    ),
+    STORAGE_AUTH_FAILED: (
+        "Flyer storage is not configured correctly (the storage provider "
+        "rejected the credentials)."
+    ),
+    STORAGE_PERMISSION_DENIED: (
+        "Flyer storage is not configured correctly (the storage provider "
+        "denied permission for this bucket)."
+    ),
+    STORAGE_TIMEOUT: (
+        "The storage provider did not respond in time. Please try again."
+    ),
+}
+_STORAGE_ERROR_FALLBACK = "The storage provider rejected this upload. Please try again."
+
+
+def _raise_storage_http(err: StorageError, operation: str, event_id: str) -> None:
+    """Log a safe, structured diagnostic and raise a sanitized 502.
+
+    Logs ONLY non-sensitive fields (operation, event id, backend, bucket, HTTP
+    status, sanitized category, correlation id) — never the service-role key,
+    auth header, raw provider body or image bytes.
+    """
+    correlation_id = new_uuid()[:8]
+    logger.warning(
+        "flyer_storage_failure operation=%s event_id=%s backend=%s bucket=%s "
+        "http_status=%s category=%s correlation_id=%s",
+        operation,
+        event_id,
+        settings.storage_backend,
+        settings.supabase_storage_bucket if settings.is_supabase_storage else "local",
+        err.status_code if err.status_code is not None else "n/a",
+        err.category,
+        correlation_id,
+    )
+    raise HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail=_STORAGE_ERROR_MESSAGES.get(err.category, _STORAGE_ERROR_FALLBACK),
+    )
+
+
 def _detect_image_type(file: UploadFile) -> str | None:
     """Return the accepted content type, or None if unsupported.
 
@@ -519,11 +580,10 @@ async def upload_flyer(
     storage = get_storage()
     try:
         storage.save(key, data, content_type)
-    except StorageError:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Could not store the flyer right now. Please try again.",
-        )
+    except StorageError as err:
+        # The previous flyer (if any) is untouched — we only repoint the event
+        # after a successful save, so a storage failure never erases a valid flyer.
+        _raise_storage_http(err, "upload", event_id)
 
     previous = event.flyer_storage_path
     event.flyer_storage_path = key
@@ -628,6 +688,8 @@ def _serialize_tree(db: Session, tree: InviteTree) -> InviteTreeOut:
             select(func.count(Rsvp.id)).where(Rsvp.invite_tree_id == tree.id)
         ).scalar_one()
     )
+    # Per-tree availability: the event status/deadline plus this tree's pause.
+    availability = evaluate_availability(tree.event, tree)
     return InviteTreeOut(
         id=tree.id,
         event_id=tree.event_id,
@@ -641,6 +703,9 @@ def _serialize_tree(db: Session, tree: InviteTree) -> InviteTreeOut:
         remaining_seats=remaining,
         rsvp_count=rsvp_count,
         invite_url=build_invite_url(tree.token),
+        accepting_rsvps=availability.accepting,
+        availability_reason=availability.reason,
+        availability_label=availability.label,
         created_at=tree.created_at,
         updated_at=tree.updated_at,
     )

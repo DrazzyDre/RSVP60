@@ -38,9 +38,21 @@ export function usePreviewInvite() {
           );
           return;
         }
-        const tree = trees.find((t) => t.status === "active") ?? trees[0];
+        // Prefer a tree that can actually accept RSVPs so the preview matches
+        // what guests see; fall back to an active/first tree otherwise.
+        const tree =
+          trees.find((t) => t.accepting_rsvps) ??
+          trees.find((t) => t.status === "active") ??
+          trees[0];
         const url = `${window.location.origin}/invite/${tree.token}`;
         window.open(url, "_blank", "noopener,noreferrer");
+        // Warn if even the best tree can't accept RSVPs — the preview will show
+        // the guest-facing "currently closed" state.
+        if (!tree.accepting_rsvps) {
+          toast.error(
+            `Heads up: this invite is not accepting RSVPs (${tree.availability_label}). Guests currently see it as closed.`
+          );
+        }
       } catch (err) {
         toast.error(
           err instanceof ApiError ? err.message : "Could not open the invite preview."
