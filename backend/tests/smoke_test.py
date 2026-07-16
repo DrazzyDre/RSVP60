@@ -83,6 +83,13 @@ Phase 6.1 additions (RSVP availability reasons):
   * event-level availability ignores per-tree pauses; public payload hides the
     internal reason (guests only see the boolean)
 
+Phase 7 additions (observability + notification centre):
+  * the notifications API rejects anonymous callers; a viewer may read them
+  * a new RSVP creates a "new RSVP" notification; a waitlisted guest creates a
+    warning; a full tree creates a single deduped "tree full" notification
+  * unread-count is event-scoped; marking one read decrements it; mark-all-read
+    zeroes it; notification payloads leak no provider/storage secret
+
 Requires the owner/admin/viewer accounts created by app.seed.
 Uses only the Python standard library (no extra deps).
 """
@@ -1079,6 +1086,83 @@ def main() -> int:
         check("6.3 comms logs expose no provider secret",
               "bearer" not in json.dumps(allog).lower()
               and "resend_api_key" not in json.dumps(allog).lower())
+
+    # --- Phase 7: observability + notification centre --------------------
+    # Notifications require authentication.
+    s7, _ = get("/api/admin/notifications")
+    check("notifications endpoint rejects anonymous", s7 == 401, f"status={s7}")
+
+    if e63:
+        # The opted-in / no-consent RSVPs submitted above (new + accepted) should
+        # each have produced a "new RSVP" notification for this event.
+        _, np = jget(
+            f"/api/admin/notifications?event_id={e63}&include_platform=false&limit=200",
+            token,
+        )
+        n_types = {i["notification_type"] for i in np["items"]}
+        check("new-RSVP notification created for the event", "rsvp_new" in n_types,
+              str(sorted(n_types)))
+
+        # A viewer can read notifications (informational, not privileged).
+        if vtok:
+            sv, _ = get(f"/api/admin/notifications?event_id={e63}", vtok)
+            check("viewer can view notifications (200)", sv == 200, f"status={sv}")
+
+        # Force a full tree -> a waitlisted guest + a single deduped tree-full item.
+        s, rawft = post(
+            "/api/admin/invite-trees",
+            {"event_id": e63, "name": "Full Tree 7", "allocated_seats": 1, "max_extra_guests": 0},
+            token,
+        )
+        ft = json.loads(rawft)["token"] if s == 201 else None
+        if ft:
+            post(f"/api/invites/{ft}/rsvp", {"full_name": "Filler 7", "phone": "+2347799000071", "attending": True, "seats_requested": 1})
+            post(f"/api/invites/{ft}/rsvp", {"full_name": "Waiter 7", "phone": "+2347799000072", "attending": True, "seats_requested": 1})
+            post(f"/api/invites/{ft}/rsvp", {"full_name": "Waiter 7b", "phone": "+2347799000073", "attending": True, "seats_requested": 1})
+            _, np2 = jget(
+                f"/api/admin/notifications?event_id={e63}&include_platform=false&limit=200",
+                token,
+            )
+            wl = [i for i in np2["items"] if i["notification_type"] == "rsvp_waitlisted"]
+            ex = [i for i in np2["items"] if i["notification_type"] == "tree_exhausted"]
+            check("waitlisted RSVP creates a warning notification",
+                  any(i["severity"] == "warning" for i in wl), str(wl[:1]))
+            check("tree-exhausted notification is deduped to one",
+                  len(ex) == 1, f"count={len(ex)}")
+            check("waitlist notification links to the guest list",
+                  bool(wl) and (wl[0].get("action_url") or "").endswith("waitlisted"),
+                  str(wl[:1]))
+
+        # Unread count reflects the scope and is positive.
+        _, uc = jget(f"/api/admin/notifications/unread-count?event_id={e63}&include_platform=false", token)
+        check("unread-count endpoint returns a positive scoped count", uc["unread"] > 0, str(uc))
+
+        # Marking one read decrements the unread count.
+        _, npu = jget(
+            f"/api/admin/notifications?event_id={e63}&include_platform=false&unread=true&limit=1",
+            token,
+        )
+        if npu["items"]:
+            nid = npu["items"][0]["id"]
+            s, mr = patch(f"/api/admin/notifications/{nid}/read", {}, token)
+            check("mark one notification read", s == 200 and json.loads(mr)["is_read"],
+                  f"{s} {mr[:80]}")
+            _, uc2 = jget(f"/api/admin/notifications/unread-count?event_id={e63}&include_platform=false", token)
+            check("unread count decreases after marking read",
+                  uc2["unread"] == uc["unread"] - 1, f"{uc} -> {uc2}")
+
+        # Notifications carry no secret material.
+        _, npall = jget(f"/api/admin/notifications?event_id={e63}&limit=200", token)
+        blob = json.dumps(npall).lower()
+        check("notifications expose no secret material",
+              "bearer" not in blob and "service_role" not in blob
+              and "resend_api_key" not in blob)
+
+        # Mark all read for the event -> unread returns to zero.
+        s, _ = patch(f"/api/admin/notifications/read-all?event_id={e63}&include_platform=false", {}, token)
+        check("mark-all-read succeeds (event scope)", s == 200, f"status={s}")
+        _, uc3 = jget(f"/api/admin/notifications/unread-count?event_id={e63}&include_platform=false", token)
+        check("unread count is zero after mark-all-read", uc3["unread"] == 0, str(uc3))
 
     # --- Phase 3.5: login rate limiting (run last) -----------------------
     brute = {"email": "bruteforce@gatherarc.com", "password": "wrongwrong"}

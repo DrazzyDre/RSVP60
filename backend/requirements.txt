@@ -12,3 +12,7 @@ email-validator==2.2.0
 python-multipart==0.0.20
 # Postgres driver (Supabase / Render / Railway). Not needed for the default sqlite dev DB.
 psycopg2-binary==2.9.10
+# Optional error tracking (Phase 7). Only used when SENTRY_DSN is set; the app
+# imports it lazily and runs normally if it is absent. Safe to remove if you do
+# not use Sentry.
+sentry-sdk==2.20.0

@@ -76,11 +76,15 @@ Full table: see the main `README.md` → *Environment variables*.
 | `EMAIL_BACKEND` | `resend` |
 | `EMAIL_FROM_ADDRESS` / `EMAIL_FROM_NAME` / `RESEND_API_KEY` | email; **API key is server-only** |
 | `EMAIL_TIMEOUT_SECONDS` | e.g. `10` |
+| `SENTRY_DSN` | **optional** error tracking; blank → disabled. **Server-only** (never in the frontend); scrubbed of headers/bodies |
+| `SENTRY_ENVIRONMENT` / `SENTRY_TRACES_SAMPLE_RATE` / `SENTRY_PROFILES_SAMPLE_RATE` | env tag + sample rates (default `0.0`; errors still report) |
 
-**Frontend (Vercel):** `NEXT_PUBLIC_API_URL` = backend origin (public; no secrets).
+**Frontend (Vercel):** `NEXT_PUBLIC_API_URL` = backend origin; `NEXT_PUBLIC_SENTRY_DSN`
++ `NEXT_PUBLIC_SENTRY_ENVIRONMENT` (optional client error tracking — a **public**
+DSN, blank → disabled). All `NEXT_PUBLIC_*` values are public; no secrets.
 
-**Never** place `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY` or `JWT_SECRET` in
-any `NEXT_PUBLIC_*` variable or the frontend build.
+**Never** place `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `JWT_SECRET` or the
+**backend** `SENTRY_DSN` in any `NEXT_PUBLIC_*` variable or the frontend build.
 
 ---
 
@@ -302,11 +306,40 @@ Send **only** clearly-labelled test emails to an **approved test recipient**.
 
 ## 11. Observability
 
-Structured console logs (stdout) cover: the startup mode/backends line, config
-failures, email provider failures, storage provider failures, and unexpected API
-errors (via the global handler). Logs **never** contain JWT secrets, passwords,
-service-role/Resend keys, or authorization headers. Ship stdout to your platform's
-log drain. No paid monitoring provider is required for this phase.
+**Structured logs.** Console logs (stdout) cover: the startup mode/backends line
+(including whether error tracking is on), config failures, email provider
+failures, storage provider failures, notification-creation failures, and
+unexpected API errors (via the global handler). Logs **never** contain JWT
+secrets, passwords, service-role/Resend keys, or authorization headers. Ship
+stdout to your platform's log drain.
+
+**Error tracking (Sentry — optional).** Leave the DSNs blank to run without it.
+
+- *Backend* — set `SENTRY_DSN` (+ optional `SENTRY_ENVIRONMENT`,
+  `SENTRY_TRACES_SAMPLE_RATE`, `SENTRY_PROFILES_SAMPLE_RATE`) on **Render only**.
+  Unhandled server errors are reported, tagged with app/environment/route (and
+  event id where bound). A `before_send` hook scrubs auth headers, cookies and
+  request bodies, so tokens/API keys and guest form data never leave the process.
+  The DSN is never returned by the API. `sentry-sdk` is imported lazily; if the
+  DSN is unset or the package is missing, tracking is simply disabled.
+- *Frontend* — set `NEXT_PUBLIC_SENTRY_DSN` (+ `NEXT_PUBLIC_SENTRY_ENVIRONMENT`)
+  on **Vercel**. This is a **public** ingest DSN (not the backend one). Only the
+  error type, message, stack and route are sent — no breadcrumbs, no user
+  identity, no guest PII. Implemented dependency-free (no SDK/webpack plugin), so
+  the Next.js build is unaffected.
+- *Testing it* — there is **no** public "throw a test error" endpoint by design.
+  In a safe (non-prod) environment, set the DSN and exercise a real error path,
+  then confirm the event appears in Sentry. Use `validate_prod_config` /
+  `validate_storage` / `validate_email` to check config without side effects.
+
+**Notification centre (in-app).** Operational events (failed emails, failed flyer
+uploads, waitlisted guests, full invite trees, duplicate check-ins, admin
+changes) are recorded in `admin_notifications` and surfaced to admins via the
+workspace **bell** and the **/admin/notifications** page. This is the fastest way
+for a host to notice a problem without reading platform logs. **Read state is a
+single global `is_read` flag** (not per-admin) — marking read affects the shared
+view. Notifications have no FKs to their entities, so they survive event/RSVP
+deletion. There is **no** retention/pruning job yet — see §13.
 
 ---
 
@@ -363,3 +396,13 @@ migrations and re-bootstrap the owner.
 - Email sends are synchronous (timeout-capped); no background queue/scheduler.
 - Storage delete is best-effort; a failed delete leaves an orphaned object.
 - Supabase Storage has no PITR — keep flyer originals.
+- Notification **read state is global** (`is_read`), not per-admin: one admin
+  marking a notification read clears it for everyone.
+- Notifications are **not pruned** automatically — the `admin_notifications` table
+  grows over time. Trim it under a deliberate retention policy if needed.
+- Notification generation is **event-driven**: it fires from actions taken while
+  the app is running. It does not back-fill signals for historical data, and
+  purely-computed conditions (active-but-not-ready, RSVPs closed) live in the
+  dashboard **Attention needed** panel rather than the persisted centre.
+- Error tracking is **optional and best-effort**: with no DSN there is no external
+  reporting (logs still capture failures). It reports errors, not audit events.

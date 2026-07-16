@@ -223,3 +223,44 @@ class CommunicationLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, index=True
     )
+
+
+class AdminNotification(Base):
+    """An in-app operational notification surfaced to admins (Phase 7).
+
+    Deliberately decoupled from the entity it describes: ``event_id`` and
+    ``entity_id`` are plain nullable columns with NO foreign-key constraint, so a
+    notification outlives the event / tree / RSVP it refers to (deleting or
+    archiving that entity never breaks or removes the historical notification).
+
+    Read state is a single global ``is_read`` flag (not per-admin) — see the
+    Phase 7 docs for the tradeoff. ``dedupe_key`` collapses noisy repeats of the
+    same condition (e.g. one "tree exhausted" per tree while unread). ``meta`` is
+    a small, sanitized JSON blob — it must never carry secrets or sensitive guest
+    data (scrubbed by ``app.notifications``).
+    """
+
+    __tablename__ = "admin_notifications"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_uuid)
+    # Owning event, or NULL for platform-level notifications (admin/security).
+    event_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    # Stable machine key, e.g. "rsvp_waitlisted", "tree_exhausted", "email_failed".
+    notification_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    # info | success | warning | error
+    severity: Mapped[str] = mapped_column(String(20), default="info", index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    message: Mapped[str] = mapped_column(Text, default="")
+    # What this notification is about (e.g. "rsvp", "invite_tree") + its id.
+    entity_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    entity_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # App-relative link the admin can follow to act on it (e.g. an event page).
+    action_url: Mapped[str | None] = mapped_column(String(600), nullable=True)
+    # Collapses duplicate noisy notifications for the same live condition.
+    dedupe_key: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    meta: Mapped[str] = mapped_column("metadata", Text, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, index=True
+    )

@@ -8,6 +8,7 @@ import {
   CalendarRange,
   ClipboardList,
   LayoutDashboard,
+  Bell,
   ListTree,
   Loader2,
   LogOut,
@@ -23,9 +24,12 @@ import {
 import { api, ApiError, clearToken, getToken } from "@/lib/api";
 import type { Admin } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { initClientErrorHandlers } from "@/lib/observability";
 import { Button } from "@/components/ui/button";
 import { AuthProvider } from "@/components/admin/auth-context";
 import { EventProvider, useEvents } from "@/components/admin/event-context";
+import { NotificationProvider } from "@/components/admin/notification-context";
+import { NotificationBell } from "@/components/admin/NotificationBell";
 import { WorkspaceBar } from "@/components/admin/WorkspaceBar";
 import { WorkspaceSwitcher } from "@/components/admin/WorkspaceSwitcher";
 import { BrandLogo } from "@/components/brand/BrandLogo";
@@ -69,6 +73,7 @@ function buildNavGroups(eventId: string | null, isOwner: boolean): NavGroup[] {
     label: "Platform",
     items: [
       { href: "/admin/events", label: "Events", icon: CalendarRange },
+      { href: "/admin/notifications", label: "Notifications", icon: Bell },
       { href: "/admin/admins", label: "Admins", icon: ShieldCheck, ownerOnly: true },
       { href: "/admin/audit", label: "Audit", icon: ScrollText, ownerOnly: true },
     ].filter((item) => !item.ownerOnly || isOwner),
@@ -88,6 +93,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [checking, setChecking] = useState(true);
 
   const isLoginPage = pathname === "/admin/login";
+
+  // Install optional client error handlers once (no-op without a Sentry DSN).
+  useEffect(() => {
+    initClientErrorHandlers();
+  }, []);
 
   useEffect(() => {
     if (isLoginPage) {
@@ -132,13 +142,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <AuthProvider admin={admin}>
       <EventProvider>
-        <ToastProvider>
-          <ConfirmProvider>
-            <AdminShell admin={admin} pathname={pathname} onLogout={logout}>
-              {children}
-            </AdminShell>
-          </ConfirmProvider>
-        </ToastProvider>
+        <NotificationProvider>
+          <ToastProvider>
+            <ConfirmProvider>
+              <AdminShell admin={admin} pathname={pathname} onLogout={logout}>
+                {children}
+              </AdminShell>
+            </ConfirmProvider>
+          </ToastProvider>
+        </NotificationProvider>
       </EventProvider>
     </AuthProvider>
   );
@@ -214,6 +226,7 @@ function AdminShell({
           </button>
           <BrandLogo variant="mark" className="h-7 w-7 flex-shrink-0" />
           <WorkspaceSwitcher variant="compact" className="min-w-0 flex-1" />
+          <NotificationBell className="flex-shrink-0" />
         </header>
 
         <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 print:overflow-visible print:p-0">

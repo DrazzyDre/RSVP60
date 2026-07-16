@@ -354,3 +354,36 @@ export interface NotifyResult {
   status: string;
   detail: string;
 }
+
+// --- Notification centre (Phase 7) --- //
+export type NotificationSeverity = "info" | "success" | "warning" | "error";
+
+export interface AdminNotification {
+  id: string;
+  event_id: string | null;
+  notification_type: string;
+  severity: NotificationSeverity;
+  title: string;
+  message: string;
+  entity_type: string | null;
+  entity_id: string | null;
+  action_url: string | null;
+  is_read: boolean;
+  read_at: string | null;
+  created_at: string;
+  event_name: string | null;
+}
+
+export interface NotificationPage {
+  items: AdminNotification[];
+  total: number;
+  unread: number;
+}
+
+export interface UnreadCount {
+  unread: number;
+}
+
+export interface MarkAllReadResult {
+  updated: number;
+}

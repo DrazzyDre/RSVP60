@@ -13,6 +13,7 @@ import {
 import { useEvents } from "@/components/admin/event-context";
 import { useAuth, useCanEdit } from "@/components/admin/auth-context";
 import { usePreviewInvite } from "@/components/admin/PreviewInviteButton";
+import { NotificationBell } from "@/components/admin/NotificationBell";
 import { WorkspaceSwitcher } from "@/components/admin/WorkspaceSwitcher";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -80,6 +81,7 @@ export function WorkspaceBar() {
             </Button>
           </>
         )}
+        <NotificationBell />
         {admin && (
           <Link
             href={settingsHref}

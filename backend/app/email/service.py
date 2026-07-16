@@ -16,6 +16,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .. import notifications as notif_service
 from ..models import CommunicationLog, Rsvp
 from . import templates
 from .base import EmailMessage
@@ -107,7 +108,7 @@ def _deliver(
         )
     except Exception:  # pragma: no cover - ultra-defensive
         logger.exception("Email provider crashed while sending %s", comm_type)
-        return _record(
+        log = _record(
             db,
             event_id=event_id,
             comm_type=comm_type,
@@ -119,7 +120,9 @@ def _deliver(
             error_summary="Unexpected send error.",
             meta=meta,
         )
-    return _record(
+        _maybe_notify_failure(db, event_id, comm_type, log)
+        return log
+    log = _record(
         db,
         event_id=event_id,
         comm_type=comm_type,
@@ -133,6 +136,31 @@ def _deliver(
         sent_at=datetime.utcnow() if result.ok else None,
         meta=meta,
     )
+    _maybe_notify_failure(db, event_id, comm_type, log)
+    return log
+
+
+def _maybe_notify_failure(
+    db: Session, event_id: str, comm_type: str, log: CommunicationLog
+) -> None:
+    """Raise an in-app notification for a failed send. Never affects delivery.
+
+    Deduped per (event, comm_type) while unread, so a burst of failures (e.g. a
+    whole reminder run) collapses to one actionable item. Enlisted in the
+    caller's transaction (committed by ``_commit``).
+    """
+    if log.status != "failed":
+        return
+    try:
+        notif_service.notify_email_failed(
+            db,
+            event_id=event_id,
+            communication_type=comm_type,
+            error_summary=log.error_summary,
+            commit=False,
+        )
+    except Exception:  # pragma: no cover - defensive
+        logger.exception("failed to create email-failure notification")
 
 
 def _commit(db: Session) -> None:

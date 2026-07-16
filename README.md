@@ -338,6 +338,77 @@ bodies, no full provider responses.
 
 ---
 
+## Observability & notifications (Phase 7)
+
+Operational confidence for a live pilot: know when something breaks, surface it
+to admins in-product, and keep failures from going silent.
+
+### In-app notification centre
+
+A dedicated `admin_notifications` table + `/api/admin/notifications` API power a
+**bell** in the workspace top bar (unread badge + dropdown) and a full
+**`/admin/notifications`** page with event / severity / unread filters. Any active
+admin — **owner, admin or viewer** — can read notifications and mark them read.
+
+**What appears there** (actionable operational events):
+
+- **RSVP & capacity** — new RSVP received; guest waitlisted (warning); an invite
+  tree became full (one deduped warning per tree).
+- **Communications** — an email failed to send (error, deduped per event + type);
+  a bulk reminder run completed (or completed with failures).
+- **Storage** — a flyer upload failed (error, deduped per event + category).
+- **Check-in** — a duplicate check-in was attempted (warning).
+- **Security / admin** (platform-level) — an admin was deactivated; a new admin
+  was added.
+
+**What does *not* appear there:** every successful check-in, low-value successes,
+or purely-computed conditions (event active-but-not-ready, RSVPs closed) — those
+live in the dashboard **Attention needed** panel instead, so the centre stays a
+short, actionable list rather than a firehose.
+
+**Read state** is a single global `is_read` flag (not per-admin) — a deliberate
+MVP tradeoff: marking read affects the shared view for all admins. **Dedupe**
+collapses repeats of the same *live* condition while unread (e.g. one "tree full"
+per tree); once read, a recurring condition can notify again. **Event scoping** —
+the bell shows the selected event's notifications plus platform-level ones; the
+full page can filter to a single event. Notifications intentionally have **no
+foreign keys** to events/RSVPs, so they survive the deletion or archival of the
+thing they describe.
+
+### Dashboard "Attention needed" panel
+
+The event overview shows a concise, host-facing command centre surfacing the most
+important **unresolved** issues for the selected event — missing invite trees,
+full trees, waitlisted guests, live-but-incomplete setup, a missing flyer, and a
+count of unresolved delivery/config errors — each linking straight to the page
+that fixes it. When nothing is wrong it shows a compact "All clear".
+
+### Error tracking (optional Sentry)
+
+Both backend and frontend support **optional** Sentry error tracking. It is
+entirely off unless a DSN is set, and the app runs normally either way.
+
+- **Backend** (`SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_TRACES_SAMPLE_RATE`,
+  `SENTRY_PROFILES_SAMPLE_RATE`) — reports unhandled server errors, tagged with
+  the app, environment and route (and event id where bound). A `before_send` hook
+  scrubs auth headers, cookies and request bodies, so tokens/API keys and guest
+  form data never leave the process. The backend DSN belongs on **Render only**;
+  it is never returned by the API. Uses `sentry-sdk`, imported lazily — if the DSN
+  is unset or the package is absent, tracking is simply disabled.
+- **Frontend** (`NEXT_PUBLIC_SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_ENVIRONMENT`) — a
+  lightweight, **dependency-free** capture (no SDK, no webpack plugin, so the
+  Next.js build is untouched): Next error boundaries plus window handlers report
+  uncaught client errors to Sentry's public ingest endpoint. Only the error type,
+  message, stack and route are sent — **no breadcrumbs, no user identity, no
+  guest name / email / phone**. The public DSN can live in **Vercel**.
+
+There is intentionally **no public "throw a test error" endpoint**. To verify
+backend reporting, set the DSN and trigger any real error path in a safe
+environment; to verify config without sending mail/storage calls, use the
+existing `validate_*` commands.
+
+---
+
 ## Project structure
 
 ```
@@ -346,23 +417,25 @@ gatherarc/
 ├── backend/                  # FastAPI app
 │   ├── Dockerfile
 │   ├── alembic.ini           # Alembic config (DB URL comes from settings)
-│   ├── migrations/           # Alembic env + versions/0001…0005_guest_communications
+│   ├── migrations/           # Alembic env + versions/0001…0006_admin_notifications
 │   ├── uploads/              # local flyer storage (git-ignored; local backend)
 │   ├── app/
-│   │   ├── main.py           # entrypoint: runtime validation, health, /media mount
-│   │   ├── config.py         # env-driven settings (+ APP_ENV, storage, prod guards)
+│   │   ├── main.py           # entrypoint: runtime validation, health, error tracking
+│   │   ├── config.py         # env-driven settings (+ APP_ENV, storage, sentry, prod guards)
 │   │   ├── database.py       # SQLAlchemy engine/session
-│   │   ├── models.py         # events, admins, invite_trees, rsvps, audit_logs
+│   │   ├── models.py         # events, admins, invite_trees, rsvps, audit/comms/notifications
 │   │   ├── schemas.py        # Pydantic request/response models
 │   │   ├── security.py       # password hashing + JWT
 │   │   ├── roles.py          # owner/admin/viewer role model + permissions
 │   │   ├── storage.py        # pluggable flyer storage (local / supabase)
+│   │   ├── notifications.py  # in-app admin notification-centre service (Phase 7)
+│   │   ├── observability.py  # optional Sentry error tracking (Phase 7)
 │   │   ├── deps.py           # auth + role dependencies + audit helper
 │   │   ├── seat_logic.py     # all seat/quota/waitlist rules
 │   │   ├── ratelimit.py      # in-memory RSVP rate limiter
 │   │   ├── utils.py          # phone normalization
 │   │   ├── seed.py           # dev/demo seed (blocked in production)
-│   │   └── routers/          # public.py, admin.py
+│   │   └── routers/          # public.py, admin.py, communications.py, notifications.py
 │   ├── tests/smoke_test.py   # HTTP smoke suite (SQLite or Postgres)
 │   ├── schema.sql            # reference Postgres schema
 │   └── requirements.txt
@@ -502,6 +575,10 @@ convenience.)
 | `EMAIL_FROM_NAME`                | `GatherArc`                   | Display name on outgoing mail.                                      |
 | `RESEND_API_KEY`                 | _(empty)_                     | Resend API key — **server-only secret**, never exposed to the frontend, never logged. Required when `EMAIL_BACKEND=resend`. |
 | `EMAIL_TIMEOUT_SECONDS`          | `10`                          | Hard cap on a single synchronous provider send.                    |
+| `SENTRY_DSN`                     | _(empty)_                     | **Optional** error tracking. Blank → disabled. **Server-only** (Render); scrubbed of headers/bodies; never returned by the API. |
+| `SENTRY_ENVIRONMENT`             | _(APP_ENV)_                   | Environment tag on reported errors (falls back to `APP_ENV`).       |
+| `SENTRY_TRACES_SAMPLE_RATE`      | `0.0`                         | Performance-tracing sample rate (errors still report at `0.0`).     |
+| `SENTRY_PROFILES_SAMPLE_RATE`    | `0.0`                         | Profiling sample rate.                                              |
 
 **Production fail-fast guards.** On boot (`validate_runtime`) the app **refuses to
 start** in production (`APP_ENV=production`) when: `JWT_SECRET` is the dev default;
@@ -544,9 +621,14 @@ The API port is a uvicorn flag (`--port 8010` / `$PORT`), not an env var. See
 
 ### Frontend (`frontend/.env.local`)
 
-| Variable              | Default                 | Description                        |
-| --------------------- | ----------------------- | ---------------------------------- |
-| `NEXT_PUBLIC_API_URL` | `http://localhost:8010` | Base URL of the FastAPI backend.   |
+| Variable                          | Default                 | Description                        |
+| --------------------------------- | ----------------------- | ---------------------------------- |
+| `NEXT_PUBLIC_API_URL`             | `http://localhost:8010` | Base URL of the FastAPI backend.   |
+| `NEXT_PUBLIC_SENTRY_DSN`          | _(empty)_               | **Optional** client error tracking. Blank → disabled. A **public** browser DSN (Vercel), never the backend `SENTRY_DSN`. |
+| `NEXT_PUBLIC_SENTRY_ENVIRONMENT`  | `production`            | Environment tag on reported client errors. |
+
+> Everything prefixed `NEXT_PUBLIC_*` is embedded in the browser bundle and is
+> **public** — never put a secret (including the backend Sentry DSN) here.
 
 ---
 
@@ -737,6 +819,9 @@ commands directly.
 - `GET   /api/admin/communications/reminder/preview?event_id=…&exclude_checked_in=…` — audience + rendered preview
 - `POST  /api/admin/communications/reminder/send?event_id=…` — bulk reminder (editor; `confirm_resend` guards repeats)
 - `GET   /api/admin/communications/logs?event_id=…` — event-scoped delivery log (any active admin)
+- `GET   /api/admin/notifications` — notification list (any active admin; filters: `event_id`, `include_platform`, `unread`, `severity`, `notification_type`, `limit`, `offset`)
+- `GET   /api/admin/notifications/unread-count?event_id=…` — scoped unread badge count
+- `PATCH /api/admin/notifications/{id}/read` · `PATCH /api/admin/notifications/read-all?event_id=…` — mark read
 
 ---
 

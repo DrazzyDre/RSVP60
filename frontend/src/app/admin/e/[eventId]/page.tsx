@@ -22,6 +22,7 @@ import { useEvents } from "@/components/admin/event-context";
 import { useCanEdit } from "@/components/admin/auth-context";
 import { EmptyEventState } from "@/components/admin/EmptyEventState";
 import { AvailabilityNotice } from "@/components/admin/AvailabilityNotice";
+import { EventHealthPanel } from "@/components/admin/EventHealthPanel";
 import { QuickActions } from "@/components/admin/QuickActions";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/admin/StatCard";
@@ -103,6 +104,10 @@ export default function DashboardPage() {
           label={selectedEvent.availability_label}
           reason={selectedEvent.availability_reason}
         />
+      )}
+
+      {selectedEvent && (
+        <EventHealthPanel event={selectedEvent} summary={summary} base={base} />
       )}
 
       <QuickActions />

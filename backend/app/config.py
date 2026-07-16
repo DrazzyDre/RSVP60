@@ -90,6 +90,17 @@ class Settings(BaseSettings):
     login_rate_limit_max_failures: int = 5
     login_rate_limit_window_seconds: int = 300
 
+    # --- Error tracking (optional, Phase 7) ------------------------------ #
+    # Sentry is OPTIONAL. Leave SENTRY_DSN blank to disable it entirely — the app
+    # runs normally with no error reporting. When set (Render backend only), the
+    # DSN is a server-side value used to send scrubbed error events; it is never
+    # returned by the API. Sample rates default to 0.0 (errors still report;
+    # performance tracing/profiling are off unless explicitly raised).
+    sentry_dsn: str = ""
+    sentry_environment: str = ""
+    sentry_traces_sample_rate: float = 0.0
+    sentry_profiles_sample_rate: float = 0.0
+
     # Trust the X-Forwarded-For header for the client IP (rate limiting). Enable
     # ONLY when the app sits behind a single trusted reverse proxy that sets it
     # (Render, Railway, Fly, a load balancer). When off, we use the direct
@@ -129,6 +140,16 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def error_tracking_enabled(self) -> bool:
+        """Whether an error-tracking DSN is configured (Sentry)."""
+        return bool(self.sentry_dsn and self.sentry_dsn.strip())
+
+    @property
+    def sentry_environment_name(self) -> str:
+        """Effective Sentry environment (falls back to APP_ENV)."""
+        return (self.sentry_environment or self.app_env or "development").strip()
 
     def validate_runtime(self) -> None:
         """Refuse to run with unsafe or incomplete configuration.

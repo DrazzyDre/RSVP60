@@ -30,6 +30,7 @@ from ..config import settings
 from ..database import get_db
 from ..deps import get_current_admin, log_action, require_editor, require_owner
 from ..email import service as email_service
+from .. import notifications as notif_service
 from ..models import Admin, AuditLog, Event, InviteTree, Rsvp, new_uuid
 from ..ratelimit import (
     check_login_not_blocked,
@@ -207,6 +208,10 @@ def create_admin(
     )
     db.commit()
     db.refresh(new_admin)
+    try:
+        notif_service.notify_admin_created(db, new_admin)
+    except Exception:  # pragma: no cover - defensive
+        logger.exception("failed to create admin-created notification")
     return AdminOut.model_validate(new_admin)
 
 
@@ -276,6 +281,10 @@ def deactivate_admin(
         log_action(db, admin, "admin_deactivated", "admin", target.id, {})
         db.commit()
         db.refresh(target)
+        try:
+            notif_service.notify_admin_deactivated(db, target, by_admin=admin)
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("failed to create admin-deactivated notification")
     return AdminOut.model_validate(target)
 
 
@@ -559,8 +568,10 @@ _STORAGE_ERROR_MESSAGES: dict[str, str] = {
 _STORAGE_ERROR_FALLBACK = "The storage provider rejected this upload. Please try again."
 
 
-def _raise_storage_http(err: StorageError, operation: str, event_id: str) -> None:
-    """Log a safe, structured diagnostic and raise a sanitized 502.
+def _raise_storage_http(
+    err: StorageError, operation: str, event_id: str, db: Session | None = None
+) -> None:
+    """Log a safe, structured diagnostic, raise an in-app notification and a 502.
 
     Logs ONLY non-sensitive fields (operation, event id, backend, bucket, HTTP
     status, sanitized category, correlation id) — never the service-role key,
@@ -578,6 +589,15 @@ def _raise_storage_http(err: StorageError, operation: str, event_id: str) -> Non
         err.category,
         correlation_id,
     )
+    # Surface an actionable notification (deduped per event+category). The event
+    # row has not been repointed yet, so committing a notification here is safe.
+    if db is not None:
+        try:
+            notif_service.notify_storage_failed(
+                db, event_id=event_id, category=err.category, operation=operation
+            )
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("failed to create storage-failure notification")
     raise HTTPException(
         status_code=status.HTTP_502_BAD_GATEWAY,
         detail=_STORAGE_ERROR_MESSAGES.get(err.category, _STORAGE_ERROR_FALLBACK),
@@ -641,7 +661,7 @@ async def upload_flyer(
     except StorageError as err:
         # The previous flyer (if any) is untouched — we only repoint the event
         # after a successful save, so a storage failure never erases a valid flyer.
-        _raise_storage_http(err, "upload", event_id)
+        _raise_storage_http(err, "upload", event_id, db=db)
 
     previous = event.flyer_storage_path
     event.flyer_storage_path = key
@@ -931,6 +951,7 @@ def update_rsvp(
         # Accepting a guest can fill a tree — alert the host once if so.
         if old_status != new_status and new_status == "accepted":
             email_service.maybe_alert_tree_exhausted(db, rsvp.invite_tree, event)
+            notif_service.maybe_notify_tree_exhausted(db, rsvp.invite_tree, event)
     except Exception:  # pragma: no cover - defensive
         pass
 
@@ -997,6 +1018,7 @@ def check_in_rsvp(
             ),
         )
     if rsvp.checked_in_at is not None:
+        notif_service.notify_duplicate_check_in(db, rsvp.event, rsvp)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="This guest is already checked in.",
@@ -1028,6 +1050,7 @@ def check_in_rsvp(
     if result.rowcount == 0:
         # Another request won the race between our read above and this write.
         db.rollback()
+        notif_service.notify_duplicate_check_in(db, rsvp.event, rsvp)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="This guest is already checked in.",

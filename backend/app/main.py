@@ -10,7 +10,8 @@ from sqlalchemy import text
 
 from .config import settings
 from .database import Base, engine
-from .routers import admin, communications, public
+from .observability import capture_exception, init_error_tracking
+from .routers import admin, communications, notifications, public
 from .storage import ensure_local_upload_dir
 
 
@@ -57,13 +58,18 @@ def on_startup() -> None:
         logger.error("Startup configuration error: %s", exc)
         raise
 
+    # Optional error tracking (Sentry). No-op when SENTRY_DSN is unset or the SDK
+    # is not installed — the app runs normally either way.
+    init_error_tracking()
+
     # Log the effective runtime mode + backends (never the credentials).
     logger.info(
-        "GatherArc starting: env=%s db=%s storage=%s email=%s trust_proxy=%s",
+        "GatherArc starting: env=%s db=%s storage=%s email=%s error_tracking=%s trust_proxy=%s",
         settings.app_env,
         engine.dialect.name,
         settings.storage_backend,
         settings.email_backend_name,
+        "on" if settings.error_tracking_enabled else "off",
         settings.trust_proxy_headers,
     )
 
@@ -79,6 +85,9 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     generic message. (FastAPI/Starlette HTTPExceptions are handled separately
     and keep their specific detail messages.)"""
     logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    # Report to error tracking (no-op when disabled). This handler swallows the
+    # exception, so we capture it explicitly rather than relying on propagation.
+    capture_exception(exc)
     return JSONResponse(
         status_code=500,
         content={"detail": "An unexpected error occurred. Please try again later."},
@@ -120,3 +129,4 @@ def ready() -> JSONResponse:
 app.include_router(public.router)
 app.include_router(admin.router)
 app.include_router(communications.router)
+app.include_router(notifications.router)

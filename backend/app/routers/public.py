@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from ..availability import evaluate as evaluate_availability
 from ..database import get_db
 from ..email import service as email_service
+from .. import notifications as notif_service
 from ..models import InviteTree, Rsvp
 from ..schemas import (
     EventPublic,
@@ -171,10 +172,11 @@ def submit_rsvp(
         message=messages.get(new_status, "Your RSVP has been received."),
     )
 
+    event = tree.event
+
     # --- Email side effects (best-effort; never affect the response above) ---
     # The RSVP is already committed; a delivery hiccup can't roll it back.
     try:
-        event = tree.event
         email_service.send_rsvp_confirmation(
             db, rsvp, event, previous_status=previous_status
         )
@@ -187,5 +189,15 @@ def submit_rsvp(
         email_service.maybe_alert_tree_exhausted(db, tree, event)
     except Exception:  # pragma: no cover - defensive; guest never sees this
         logger.exception("RSVP email side effects failed for rsvp=%s", rsvp.id)
+
+    # --- In-app notifications (best-effort; independent of email side effects) ---
+    try:
+        if new_status == "waitlisted":
+            notif_service.notify_waitlisted(db, event, rsvp)
+        elif new_status == "accepted" and not updated:
+            notif_service.notify_new_rsvp(db, event, rsvp)
+        notif_service.maybe_notify_tree_exhausted(db, tree, event)
+    except Exception:  # pragma: no cover - defensive
+        logger.exception("RSVP notification side effects failed for rsvp=%s", rsvp.id)
 
     return response

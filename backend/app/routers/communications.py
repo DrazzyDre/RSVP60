@@ -18,6 +18,7 @@ from ..database import get_db
 from ..deps import get_current_admin, log_action, require_editor
 from ..email import service as email_service
 from ..email import templates
+from .. import notifications as notif_service
 from ..models import Admin, CommunicationLog, Event, InviteTree, Rsvp
 from ..schemas import (
     CommunicationLogOut,
@@ -244,6 +245,12 @@ def reminder_send(
         email_service.send_host_alert(
             db, event, "host_reminder_complete", summary, dedup=False
         )
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+    # In-app notification summarising the run (success, or warning on failures).
+    try:
+        notif_service.notify_reminder_complete(db, event, summary)
     except Exception:  # pragma: no cover - defensive
         pass
 

@@ -664,3 +664,38 @@ class ReminderSendResult(BaseModel):
 class NotifyResult(BaseModel):
     status: str  # sent | skipped | failed | not_attempted
     detail: str
+
+
+# --------------------------------------------------------------------------- #
+# Admin — notification centre (Phase 7)
+# --------------------------------------------------------------------------- #
+class NotificationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    event_id: str | None = None
+    notification_type: str
+    severity: str  # info | success | warning | error
+    title: str
+    message: str = ""
+    entity_type: str | None = None
+    entity_id: str | None = None
+    action_url: str | None = None
+    is_read: bool = False
+    read_at: datetime | None = None
+    created_at: datetime
+    # Resolved event name for display (mixed/global lists). Set by the router.
+    event_name: str | None = None
+
+
+class NotificationPage(BaseModel):
+    items: list[NotificationOut]
+    total: int
+    unread: int
+
+
+class UnreadCount(BaseModel):
+    unread: int
+
+
+class MarkAllReadResult(BaseModel):
+    updated: int
