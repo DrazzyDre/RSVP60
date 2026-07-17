@@ -6,7 +6,7 @@ import { ApiError } from "@/lib/api";
 import { BACKGROUND_PRESETS } from "@/lib/event-options";
 import type { BackgroundPreset, ThemePreset } from "@/lib/types";
 import type { SetupStepHandle, SetupStepProps } from "@/components/admin/setup/steps";
-import { Field, StepError, patchEvent } from "@/components/admin/setup/step-utils";
+import { Field, StepError, patchEvent, useStepDirty } from "@/components/admin/setup/step-utils";
 import { FlyerUpload } from "@/components/admin/EventForm";
 import { TemplateGallery } from "@/components/admin/TemplateGallery";
 import { InvitationPreview } from "@/components/admin/InvitationPreview";
@@ -27,6 +27,9 @@ export const StepBranding = forwardRef<SetupStepHandle, SetupStepProps>(
     const [background, setBackground] = useState<BackgroundPreset>(event.background_preset);
     const [accent, setAccent] = useState(event.accent_color);
     const [error, setError] = useState<string | null>(null);
+    // The flyer is NOT tracked here — FlyerUpload persists immediately on its
+    // own, so only the template/background/accent selections can be "unsaved".
+    const dirty = useStepDirty({ theme, background, accent });
 
     useImperativeHandle(
       ref,
@@ -39,14 +42,16 @@ export const StepBranding = forwardRef<SetupStepHandle, SetupStepProps>(
               background_preset: background,
               accent_color: accent,
             });
+            dirty.markClean();
             return true;
           } catch (err) {
             setError(err instanceof ApiError ? err.message : "Could not save branding.");
             return false;
           }
         },
+        isDirty: dirty.isDirty,
       }),
-      [event.id, theme, background, accent]
+      [event.id, theme, background, accent, dirty]
     );
 
     return (

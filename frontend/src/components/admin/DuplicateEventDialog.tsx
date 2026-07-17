@@ -31,6 +31,15 @@ const STATUS_BADGE: Record<string, string> = {
 const NAME_MAX = 200;
 const TIME_MAX = 100;
 
+/**
+ * Read-only view of a ref whose element should regain focus when the dialog
+ * closes. Structural + readonly so any element ref (button, link, …) fits —
+ * React 19's mutable `RefObject<T>` is invariant in T, which would otherwise
+ * reject a `RefObject<HTMLButtonElement | null>` where an
+ * `HTMLElement`-typed ref is expected.
+ */
+export type ReturnFocusRef = { readonly current: HTMLElement | null };
+
 type FormState = {
   name: string;
   event_date: string; // datetime-local (local)
@@ -68,13 +77,24 @@ function initialForm(source: EventAdmin): FormState {
  * On success it refreshes the event context (so the new draft appears without a
  * reload), selects the duplicated event, then routes to its event-scoped
  * settings page — where the URL becomes the source of truth for the workspace.
+ *
+ * Focus restoration: `returnFocusRef` is the stable trigger to focus when the
+ * dialog closes (Escape / Cancel / backdrop). It matters most when the dialog
+ * is opened from a transient control — e.g. an event card's actions-menu item,
+ * which has already unmounted by the time this dialog mounts, so the captured
+ * `document.activeElement` would be `<body>`. The ref (the card's menu trigger
+ * or the Settings button) survives that, and an unmounted/disconnected target
+ * is skipped safely.
  */
 export function DuplicateEventDialog({
   source,
   onClose,
+  returnFocusRef,
 }: {
   source: EventAdmin;
   onClose: () => void;
+  /** Stable element to restore focus to on close (preferred over the element focused at mount). */
+  returnFocusRef?: ReturnFocusRef;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -119,8 +139,11 @@ export function DuplicateEventDialog({
     return null;
   }, [form]);
 
-  // Lock background scroll while the dialog is mounted, and restore focus to
-  // whatever opened it on unmount.
+  // Lock background scroll while the dialog is mounted, and restore focus on
+  // unmount: prefer the caller's stable trigger ref (survives transient menu
+  // items), fall back to whatever was focused at mount. A target that has been
+  // unmounted/disconnected (e.g. after successful duplication navigates away)
+  // is skipped safely rather than throwing or focusing a dead node.
   useEffect(() => {
     previouslyFocused.current = document.activeElement;
     const prevOverflow = document.body.style.overflow;
@@ -130,9 +153,18 @@ export function DuplicateEventDialog({
     return () => {
       window.clearTimeout(t);
       document.body.style.overflow = prevOverflow;
-      const trigger = previouslyFocused.current;
-      if (trigger instanceof HTMLElement) trigger.focus();
+      const preferred = returnFocusRef?.current;
+      const fallback = previouslyFocused.current;
+      const target =
+        preferred instanceof HTMLElement && preferred.isConnected
+          ? preferred
+          : fallback instanceof HTMLElement && fallback.isConnected
+            ? fallback
+            : null;
+      target?.focus();
     };
+    // returnFocusRef is a stable ref object — read at cleanup time, not reactive.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Escape closes (unless submitting) and Tab is trapped within the panel.

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   CalendarRange,
@@ -37,6 +37,8 @@ export default function SettingsPage() {
   const canEdit = useCanEdit();
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [duplicating, setDuplicating] = useState(false);
+  // Stable trigger for the duplication dialog's focus restoration on close.
+  const duplicateBtnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     api.get<Admin>("/api/admin/me", true).then(setAdmin).catch(() => {});
@@ -105,6 +107,7 @@ export default function SettingsPage() {
                 </Link>
                 {canEdit && (
                   <Button
+                    ref={duplicateBtnRef}
                     variant="outline"
                     size="sm"
                     onClick={() => setDuplicating(true)}
@@ -209,6 +212,7 @@ export default function SettingsPage() {
         <DuplicateEventDialog
           source={selectedEvent}
           onClose={() => setDuplicating(false)}
+          returnFocusRef={duplicateBtnRef}
         />
       )}
     </div>

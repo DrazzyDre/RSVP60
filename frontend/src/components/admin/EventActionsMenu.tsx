@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Copy, MoreVertical, Settings } from "lucide-react";
 import type { EventAdmin } from "@/lib/types";
+import type { ReturnFocusRef } from "@/components/admin/DuplicateEventDialog";
 import { cn } from "@/lib/utils";
 
 type MenuAction = {
@@ -23,6 +24,10 @@ type MenuAction = {
  * role="menu" with arrow-key navigation, Home/End, Escape (returns focus to the
  * trigger) and outside-click / Tab dismissal. Backend authorization stays
  * authoritative — hiding "Duplicate" from viewers is a convenience only.
+ *
+ * `onDuplicate` receives the kebab trigger's stable ref: the menu item that was
+ * clicked unmounts as the menu closes, so the dialog it opens must restore
+ * focus to this trigger — the sensible, still-mounted origin — when it closes.
  */
 export function EventActionsMenu({
   event,
@@ -31,7 +36,7 @@ export function EventActionsMenu({
 }: {
   event: EventAdmin;
   canEdit: boolean;
-  onDuplicate: () => void;
+  onDuplicate: (returnFocus: ReturnFocusRef) => void;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -46,7 +51,7 @@ export function EventActionsMenu({
             key: "duplicate",
             label: "Duplicate event",
             icon: Copy,
-            onSelect: onDuplicate,
+            onSelect: () => onDuplicate(buttonRef),
           },
         ]
       : []),

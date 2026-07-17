@@ -22,6 +22,13 @@ export type SetupStepKey =
 export interface SetupStepHandle {
   /** Persist this step. Resolves true on success (or when there's nothing to save). */
   save: () => Promise<boolean>;
+  /**
+   * Whether the step's local values differ from the last persisted values.
+   * A successful save() must reset this to false. Steps with no local editable
+   * state (Trees, Review — they persist through their own explicit actions)
+   * always report false so navigation stays immediate.
+   */
+  isDirty: () => boolean;
 }
 
 /** Common props passed to every step body. */

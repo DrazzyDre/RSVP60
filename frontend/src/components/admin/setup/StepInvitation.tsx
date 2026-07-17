@@ -4,7 +4,7 @@ import * as React from "react";
 import { forwardRef, useId, useImperativeHandle, useState } from "react";
 import { ApiError } from "@/lib/api";
 import type { SetupStepHandle, SetupStepProps } from "@/components/admin/setup/steps";
-import { Field, StepError, patchEvent } from "@/components/admin/setup/step-utils";
+import { Field, StepError, patchEvent, useStepDirty } from "@/components/admin/setup/step-utils";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -25,6 +25,7 @@ export const StepInvitation = forwardRef<SetupStepHandle, SetupStepProps>(
       contact_phone: event.contact_phone,
     });
     const [error, setError] = useState<string | null>(null);
+    const dirty = useStepDirty(form);
 
     function set<K extends keyof typeof form>(key: K, value: string) {
       setForm((f) => ({ ...f, [key]: value }));
@@ -37,14 +38,16 @@ export const StepInvitation = forwardRef<SetupStepHandle, SetupStepProps>(
           setError(null);
           try {
             await patchEvent(event.id, { ...form });
+            dirty.markClean();
             return true;
           } catch (err) {
             setError(err instanceof ApiError ? err.message : "Could not save invitation details.");
             return false;
           }
         },
+        isDirty: dirty.isDirty,
       }),
-      [event.id, form]
+      [event.id, form, dirty]
     );
 
     return (

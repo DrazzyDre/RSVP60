@@ -13,6 +13,43 @@ export function patchEvent(
   return api.patch<EventAdmin>(`/api/admin/events/${eventId}`, body, true);
 }
 
+/**
+ * Shared dirty-state tracker for setup steps, so every step reports unsaved
+ * changes the same way without duplicating field-comparison logic.
+ *
+ * A baseline snapshot of the step's editable values is taken on mount (so
+ * loading initial values never reads as dirty) and replaced via `markClean()`
+ * after a successful save. `isDirty()` shallow-compares the CURRENT values
+ * against that baseline — comparing against what was actually persisted, not
+ * against a possibly stale event prop, so a save always resets dirtiness even
+ * if the surrounding event refresh lags or fails.
+ *
+ * Steps fully remount when the step or the event id changes, so a new mount
+ * (new event, revisited step) always starts from a fresh, clean baseline —
+ * Event A's edits can never leak into Event B.
+ */
+export function useStepDirty<T extends Record<string, string | boolean>>(values: T) {
+  const baselineRef = React.useRef<T>(values);
+  const valuesRef = React.useRef<T>(values);
+  valuesRef.current = values;
+
+  return React.useMemo(
+    () => ({
+      /** True when any tracked field differs from the last saved baseline. */
+      isDirty: () => {
+        const base = baselineRef.current;
+        const current = valuesRef.current;
+        return Object.keys(current).some((key) => current[key] !== base[key]);
+      },
+      /** Call after a successful save: the current values become the baseline. */
+      markClean: () => {
+        baselineRef.current = valuesRef.current;
+      },
+    }),
+    []
+  );
+}
+
 /** Labelled field wrapper matching the create/edit form's field layout. */
 export function Field({
   label,

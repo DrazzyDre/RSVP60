@@ -7,7 +7,7 @@ import { fromLocalInput, toLocalInput } from "@/lib/datetime";
 import { EVENT_TYPES } from "@/lib/event-options";
 import type { EventType } from "@/lib/types";
 import type { SetupStepHandle, SetupStepProps } from "@/components/admin/setup/steps";
-import { Field, StepError, patchEvent } from "@/components/admin/setup/step-utils";
+import { Field, StepError, patchEvent, useStepDirty } from "@/components/admin/setup/step-utils";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 
@@ -25,6 +25,7 @@ export const StepDetails = forwardRef<SetupStepHandle, SetupStepProps>(
     const [eventTime, setEventTime] = useState(event.event_time);
     const [host, setHost] = useState(event.host_or_celebrant_name);
     const [error, setError] = useState<string | null>(null);
+    const dirty = useStepDirty({ name, eventType, eventDate, eventTime, host });
 
     useImperativeHandle(
       ref,
@@ -43,14 +44,16 @@ export const StepDetails = forwardRef<SetupStepHandle, SetupStepProps>(
               event_time: eventTime,
               host_or_celebrant_name: host,
             });
+            dirty.markClean();
             return true;
           } catch (err) {
             setError(err instanceof ApiError ? err.message : "Could not save details.");
             return false;
           }
         },
+        isDirty: dirty.isDirty,
       }),
-      [event.id, name, eventType, eventDate, eventTime, host]
+      [event.id, name, eventType, eventDate, eventTime, host, dirty]
     );
 
     return (

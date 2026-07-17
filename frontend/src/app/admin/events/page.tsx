@@ -16,7 +16,10 @@ import { useEvents } from "@/components/admin/event-context";
 import { useCanEdit } from "@/components/admin/auth-context";
 import { EventForm } from "@/components/admin/EventForm";
 import { EventActionsMenu } from "@/components/admin/EventActionsMenu";
-import { DuplicateEventDialog } from "@/components/admin/DuplicateEventDialog";
+import {
+  DuplicateEventDialog,
+  type ReturnFocusRef,
+} from "@/components/admin/DuplicateEventDialog";
 import { AvailabilityNotice } from "@/components/admin/AvailabilityNotice";
 import { PreviewInviteButton } from "@/components/admin/PreviewInviteButton";
 import { Button } from "@/components/ui/button";
@@ -42,7 +45,12 @@ export default function EventsPage() {
   const toast = useToast();
   const [mode, setMode] = useState<Mode>({ kind: "list" });
   // When set, the premium duplication dialog is open for this source event.
-  const [duplicateSource, setDuplicateSource] = useState<EventAdmin | null>(null);
+  // `returnFocus` is the card's actions-menu trigger — the menu item that
+  // opened the dialog unmounts with the menu, so focus must return there.
+  const [duplicating, setDuplicating] = useState<{
+    event: EventAdmin;
+    returnFocus: ReturnFocusRef;
+  } | null>(null);
 
   async function handleSaved(saved: EventAdmin) {
     await refreshEvents();
@@ -130,16 +138,17 @@ export default function EventsPage() {
               isCurrent={ev.id === selectedEventId}
               canEdit={canEdit}
               onEdit={() => setMode({ kind: "edit", event: ev })}
-              onDuplicate={() => setDuplicateSource(ev)}
+              onDuplicate={(returnFocus) => setDuplicating({ event: ev, returnFocus })}
             />
           ))}
         </div>
       )}
 
-      {duplicateSource && (
+      {duplicating && (
         <DuplicateEventDialog
-          source={duplicateSource}
-          onClose={() => setDuplicateSource(null)}
+          source={duplicating.event}
+          onClose={() => setDuplicating(null)}
+          returnFocusRef={duplicating.returnFocus}
         />
       )}
     </div>
@@ -157,7 +166,7 @@ function EventCard({
   isCurrent: boolean;
   canEdit: boolean;
   onEdit: () => void;
-  onDuplicate: () => void;
+  onDuplicate: (returnFocus: ReturnFocusRef) => void;
 }) {
   return (
     <Card className={isCurrent ? "border-royal ring-1 ring-royal/20" : ""}>

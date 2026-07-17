@@ -15,7 +15,9 @@ export const StepTrees = forwardRef<
   SetupStepHandle,
   SetupStepProps & { onTreesChanged?: (count: number) => void }
 >(function StepTrees({ event, onTreesChanged }, ref) {
-  useImperativeHandle(ref, () => ({ save: async () => true }), []);
+  // Trees persist through the manager's own explicit create/edit actions, so
+  // this step never holds unsaved wizard-level state.
+  useImperativeHandle(ref, () => ({ save: async () => true, isDirty: () => false }), []);
 
   return (
     <InviteTreesManager eventId={event.id} event={event} onTreesChanged={onTreesChanged} />

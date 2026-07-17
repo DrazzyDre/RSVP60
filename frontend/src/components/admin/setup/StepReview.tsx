@@ -46,8 +46,9 @@ export const StepReview = forwardRef<
   const confirm = useConfirm();
   const [activating, setActivating] = useState(false);
 
-  // Review has nothing of its own to persist.
-  useImperativeHandle(ref, () => ({ save: async () => true }), []);
+  // Review has nothing of its own to persist and is therefore never dirty
+  // (activation is an explicit, immediate action — not local form state).
+  useImperativeHandle(ref, () => ({ save: async () => true, isDirty: () => false }), []);
 
   const done = stepCompletion(event);
   const unresolved = SETUP_STEPS.filter((s) => s.key !== "review" && !done[s.key]);

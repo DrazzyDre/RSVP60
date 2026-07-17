@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * Track browser online/offline status.
@@ -30,19 +30,33 @@ export function useOnline(): boolean {
 /**
  * Warn the user before leaving the page (tab close / reload / navigation) while
  * a form has unsaved changes. Deliberately minimal: it wires the browser's
- * native `beforeunload` guard when `dirty` is true and removes it otherwise, so
- * a successful save (which flips `dirty` back to false) never warns. In-app
- * navigation is handled by the caller (e.g. confirming on Cancel).
+ * native `beforeunload` guard and removes it otherwise, so a successful save
+ * (which flips dirtiness back to false) never warns. In-app navigation is
+ * handled by the caller (e.g. confirming on Cancel).
+ *
+ * Accepts either a boolean (re-renders drive registration, as EventForm uses)
+ * or a callback evaluated lazily at unload time — for callers whose dirty state
+ * lives behind an imperative handle (e.g. the setup wizard's current step)
+ * rather than in reactive state.
  */
-export function useUnsavedChanges(dirty: boolean): void {
+export function useUnsavedChanges(dirty: boolean | (() => boolean)): void {
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  // A callback is always "armed" (checked live per event); a boolean arms only
+  // while true, preserving the original behaviour exactly.
+  const armed = typeof dirty === "function" || dirty;
+
   useEffect(() => {
-    if (!dirty) return;
+    if (!armed) return;
     const handler = (e: BeforeUnloadEvent) => {
+      const current = dirtyRef.current;
+      const isDirty = typeof current === "function" ? current() : current;
+      if (!isDirty) return;
       e.preventDefault();
       // Required by some browsers to trigger the native confirm prompt.
       e.returnValue = "";
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [dirty]);
+  }, [armed]);
 }

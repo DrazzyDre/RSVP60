@@ -6,9 +6,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Check, Loader2, LogOut, ShieldAlert } from "lucide-react";
 import type { EventAdmin } from "@/lib/types";
+import { useUnsavedChanges } from "@/lib/hooks";
 import { useEvents } from "@/components/admin/event-context";
 import { useCanEdit } from "@/components/admin/auth-context";
 import { SetupProgress } from "@/components/admin/setup/SetupProgress";
+import { UnsavedChangesDialog } from "@/components/admin/setup/UnsavedChangesDialog";
 import {
   getStep,
   isSetupStepKey,
@@ -70,8 +72,13 @@ export function SetupWizard() {
     );
   }
 
-  return <WizardBody event={selectedEvent} />;
+  // Key by event id so switching events always remounts the wizard (and every
+  // step), guaranteeing Event A's local edits/dirty state never reach Event B.
+  return <WizardBody key={selectedEvent.id} event={selectedEvent} />;
 }
+
+/** Where a guarded navigation wants to go once the dirty step is resolved. */
+type NavTarget = { kind: "step"; step: SetupStepKey } | { kind: "exit" };
 
 function WizardBody({ event }: { event: EventAdmin }) {
   const router = useRouter();
@@ -82,6 +89,18 @@ function WizardBody({ event }: { event: EventAdmin }) {
   const stepRef = useRef<SetupStepHandle>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [saving, setSaving] = useState(false);
+  // A non-null target means the unsaved-changes confirmation is open, holding
+  // exactly ONE intended destination (Back / Skip / step jump / Exit).
+  const [pendingNav, setPendingNav] = useState<NavTarget | null>(null);
+  // The control that initiated the guarded navigation, so "Stay here" (and a
+  // failed save) can put focus back where the user was.
+  const navTriggerRef = useRef<Element | null>(null);
+
+  // Warn on refresh / tab close while the current step is dirty. Checked
+  // lazily at unload time via the step handle, so a successful save or an
+  // intentional discard clears the warning with no extra bookkeeping. Never
+  // active in viewer mode (WizardBody only mounts for owner/admin).
+  useUnsavedChanges(() => Boolean(stepRef.current?.isDirty()));
 
   const rawStep = searchParams.get("step");
   const effectiveStep: SetupStepKey = isSetupStepKey(rawStep) ? rawStep : resumeStep(event);
@@ -118,6 +137,64 @@ function WizardBody({ event }: { event: EventAdmin }) {
     router.push(`/admin/e/${event.id}/setup?step=${key}`);
   }
 
+  function navigate(target: NavTarget) {
+    if (target.kind === "step") goTo(target.step);
+    else router.push(`/admin/e/${event.id}`);
+  }
+
+  /**
+   * Single guard every leave-this-step action routes through (Back, Skip for
+   * now, progress-step jumps, review's "Go to step", Exit, Finish setup).
+   * Clean steps navigate immediately; dirty steps open the Save / Discard /
+   * Stay confirmation with the intended target stored. "Save & continue" and
+   * "Save & exit" intentionally bypass this — they already save first.
+   */
+  function requestNavigation(target: NavTarget) {
+    if (saving || pendingNav) return; // no overlap with a pending save/dialog
+    if (stepRef.current?.isDirty()) {
+      navTriggerRef.current = document.activeElement;
+      setPendingNav(target);
+    } else {
+      navigate(target);
+    }
+  }
+
+  /** Focus back to whatever started the navigation (fallback: step heading). */
+  function restoreNavFocus() {
+    const el = navTriggerRef.current;
+    if (el instanceof HTMLElement && el.isConnected) el.focus();
+    else headingRef.current?.focus();
+  }
+
+  async function confirmSaveAndGo() {
+    if (!pendingNav || saving) return;
+    const target = pendingNav;
+    const ok = await persistCurrent();
+    setPendingNav(null);
+    if (ok) {
+      navigate(target);
+    } else {
+      // Stay on the step: values are preserved and the step's inline error
+      // (role="alert") explains what went wrong.
+      restoreNavFocus();
+    }
+  }
+
+  function confirmDiscardAndGo() {
+    if (!pendingNav || saving) return;
+    const target = pendingNav;
+    setPendingNav(null);
+    // Leave without persisting — the step remounts from real backend state
+    // when revisited, so the discarded values are truly gone.
+    navigate(target);
+  }
+
+  function confirmStay() {
+    if (saving) return;
+    setPendingNav(null);
+    restoreNavFocus();
+  }
+
   async function persistCurrent(): Promise<boolean> {
     if (!stepRef.current) return true;
     setSaving(true);
@@ -131,22 +208,18 @@ function WizardBody({ event }: { event: EventAdmin }) {
   }
 
   async function saveAndContinue() {
-    if (saving) return;
+    if (saving || pendingNav) return;
     const ok = await persistCurrent();
     if (ok && nk) goTo(nk);
   }
 
   async function saveAndExit() {
-    if (saving) return;
+    if (saving || pendingNav) return;
     const ok = await persistCurrent();
     if (!ok) return;
     if (event.status === "draft") {
       toast.success(`Setup saved — “${event.name}” is still a draft. Continue any time.`);
     }
-    router.push(`/admin/e/${event.id}`);
-  }
-
-  function finish() {
     router.push(`/admin/e/${event.id}`);
   }
 
@@ -168,7 +241,7 @@ function WizardBody({ event }: { event: EventAdmin }) {
             ref={stepRef}
             event={event}
             canEdit
-            onNavigate={goTo}
+            onNavigate={(key) => requestNavigation({ kind: "step", step: key })}
             onActivated={handleActivated}
           />
         );
@@ -192,7 +265,17 @@ function WizardBody({ event }: { event: EventAdmin }) {
             until you activate it.
           </p>
         </div>
-        <Link href={`/admin/e/${event.id}`}>
+        <Link
+          href={`/admin/e/${event.id}`}
+          onClick={(e) => {
+            // Guard the "finish later" exit: a dirty step gets the same
+            // Save / Discard / Stay choice instead of silently losing edits.
+            if (saving || pendingNav || stepRef.current?.isDirty()) {
+              e.preventDefault();
+              requestNavigation({ kind: "exit" });
+            }
+          }}
+        >
           <Button variant="ghost" size="sm">
             <LogOut className="h-4 w-4" /> Exit
           </Button>
@@ -204,8 +287,8 @@ function WizardBody({ event }: { event: EventAdmin }) {
         <SetupProgress
           currentKey={effectiveStep}
           completion={completion}
-          navigable={() => !saving}
-          onNavigate={goTo}
+          navigable={() => !saving && !pendingNav}
+          onNavigate={(key) => requestNavigation({ kind: "step", step: key })}
         />
       </div>
 
@@ -229,7 +312,11 @@ function WizardBody({ event }: { event: EventAdmin }) {
       {/* Footer nav — sticky within the scroll area so it stays reachable. */}
       <div className="sticky bottom-0 z-10 -mx-4 flex flex-wrap items-center gap-2 border-t bg-background/90 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:mx-0 sm:rounded-xl sm:border sm:bg-muted/40 sm:px-4">
         {pk ? (
-          <Button variant="outline" onClick={() => goTo(pk)} disabled={saving}>
+          <Button
+            variant="outline"
+            onClick={() => requestNavigation({ kind: "step", step: pk })}
+            disabled={saving}
+          >
             <ArrowLeft className="h-4 w-4" /> Back
           </Button>
         ) : (
@@ -238,7 +325,11 @@ function WizardBody({ event }: { event: EventAdmin }) {
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {step.optional && nk && (
-            <Button variant="ghost" onClick={() => goTo(nk)} disabled={saving}>
+            <Button
+              variant="ghost"
+              onClick={() => requestNavigation({ kind: "step", step: nk })}
+              disabled={saving}
+            >
               Skip for now
             </Button>
           )}
@@ -257,7 +348,7 @@ function WizardBody({ event }: { event: EventAdmin }) {
               {saving ? "Saving…" : "Save & continue"}
             </Button>
           ) : (
-            <Button onClick={finish} disabled={saving}>
+            <Button onClick={() => requestNavigation({ kind: "exit" })} disabled={saving}>
               <Check className="h-4 w-4" /> Finish setup
             </Button>
           )}
@@ -266,6 +357,16 @@ function WizardBody({ event }: { event: EventAdmin }) {
           {saving ? "Saving your changes." : ""}
         </span>
       </div>
+
+      {/* Unsaved-changes guard: Save / Discard / Stay for the pending target. */}
+      {pendingNav && (
+        <UnsavedChangesDialog
+          saving={saving}
+          onSave={confirmSaveAndGo}
+          onDiscard={confirmDiscardAndGo}
+          onStay={confirmStay}
+        />
+      )}
     </div>
   );
 }

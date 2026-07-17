@@ -6,7 +6,7 @@ import { Info } from "lucide-react";
 import { ApiError } from "@/lib/api";
 import { fromLocalInput, toLocalInput } from "@/lib/datetime";
 import type { SetupStepHandle, SetupStepProps } from "@/components/admin/setup/steps";
-import { Field, StepError, patchEvent } from "@/components/admin/setup/step-utils";
+import { Field, StepError, patchEvent, useStepDirty } from "@/components/admin/setup/step-utils";
 import { Input } from "@/components/ui/input";
 
 /**
@@ -24,6 +24,13 @@ export const StepRsvp = forwardRef<SetupStepHandle, SetupStepProps>(
     const [notifyExhausted, setNotifyExhausted] = useState(event.notify_tree_exhausted);
     const [notifyWaitlisted, setNotifyWaitlisted] = useState(event.notify_waitlisted_rsvp);
     const [error, setError] = useState<string | null>(null);
+    const dirty = useStepDirty({
+      deadline,
+      autoClose,
+      hostEmail,
+      notifyExhausted,
+      notifyWaitlisted,
+    });
 
     useImperativeHandle(
       ref,
@@ -46,14 +53,25 @@ export const StepRsvp = forwardRef<SetupStepHandle, SetupStepProps>(
               notify_tree_exhausted: notifyExhausted,
               notify_waitlisted_rsvp: notifyWaitlisted,
             });
+            dirty.markClean();
             return true;
           } catch (err) {
             setError(err instanceof ApiError ? err.message : "Could not save RSVP settings.");
             return false;
           }
         },
+        isDirty: dirty.isDirty,
       }),
-      [event.id, event.event_date, deadline, autoClose, hostEmail, notifyExhausted, notifyWaitlisted]
+      [
+        event.id,
+        event.event_date,
+        deadline,
+        autoClose,
+        hostEmail,
+        notifyExhausted,
+        notifyWaitlisted,
+        dirty,
+      ]
     );
 
     return (
