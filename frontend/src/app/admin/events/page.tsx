@@ -8,6 +8,7 @@ import {
   ChevronRight,
   ListTree,
   Pencil,
+  Sparkles,
   Users,
 } from "lucide-react";
 import type { EventAdmin } from "@/lib/types";
@@ -200,6 +201,13 @@ function EventCard({
         )}
 
         <div className="flex flex-wrap gap-2">
+          {canEdit && ev.status === "draft" && (
+            <Link href={`/admin/e/${ev.id}/setup`}>
+              <Button size="sm">
+                <Sparkles className="h-4 w-4" /> Continue setup
+              </Button>
+            </Link>
+          )}
           <Link href={`/admin/e/${ev.id}`}>
             <Button size="sm" variant="secondary">
               Open workspace

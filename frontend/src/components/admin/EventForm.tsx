@@ -5,6 +5,12 @@ import { useEffect, useRef, useState } from "react";
 import { ImagePlus, Loader2, Trash2, UploadCloud, X } from "lucide-react";
 import { api, ApiError, resolveMediaUrl } from "@/lib/api";
 import { useUnsavedChanges } from "@/lib/hooks";
+import { fromLocalInput, toLocalInput } from "@/lib/datetime";
+import {
+  BACKGROUND_PRESETS,
+  EVENT_TYPES,
+  THEME_PRESETS,
+} from "@/lib/event-options";
 import { useConfirm } from "@/components/ui/confirm";
 import { useToast } from "@/components/ui/toast";
 import type {
@@ -20,34 +26,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-const EVENT_TYPES: EventType[] = [
-  "birthday",
-  "wedding",
-  "funeral",
-  "memorial",
-  "anniversary",
-  "church",
-  "dinner",
-  "conference",
-  "other",
-];
-
 const STATUSES: EventStatus[] = ["draft", "active", "closed", "archived"];
-
-const THEME_PRESETS: { value: ThemePreset; label: string }[] = [
-  { value: "elegant", label: "Elegant (royal & gold)" },
-  { value: "classic", label: "Classic (timeless navy)" },
-  { value: "joyful", label: "Joyful (warm & bright)" },
-  { value: "minimal", label: "Minimal (clean & simple)" },
-  { value: "formal", label: "Formal (deep & refined)" },
-];
-
-const BACKGROUND_PRESETS: { value: BackgroundPreset; label: string }[] = [
-  { value: "", label: "Theme default" },
-  { value: "soft", label: "Soft glow" },
-  { value: "plain", label: "Plain" },
-  { value: "festive", label: "Festive" },
-];
 
 // Client-side mirror of the backend flyer rules (app/storage.py + config).
 const FLYER_ACCEPT = "image/jpeg,image/png,image/webp";
@@ -71,19 +50,6 @@ function validateFlyer(file: File): string | null {
     return "Image is too large. The maximum size is 5 MB.";
   }
   return null;
-}
-
-// ISO (UTC) -> value for <input type="datetime-local"> in local time.
-function toLocalInput(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const tzOffset = d.getTimezoneOffset() * 60000;
-  return new Date(d.getTime() - tzOffset).toISOString().slice(0, 16);
-}
-
-function fromLocalInput(value: string): string | null {
-  if (!value) return null;
-  return new Date(value).toISOString();
 }
 
 type FormState = {

@@ -14,6 +14,7 @@ import {
   Mail,
   Pencil,
   Shield,
+  Sparkles,
   User,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
@@ -171,8 +172,18 @@ export default function SettingsPage() {
               What to complete before sharing invites for {selectedEvent.name}.
             </p>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <EventReadiness eventId={selectedEvent.id} />
+            {canEdit && (
+              <Link href={`/admin/e/${selectedEvent.id}/setup`} className="inline-block">
+                <Button variant={selectedEvent.status === "draft" ? "default" : "outline"} size="sm">
+                  <Sparkles className="h-4 w-4" />
+                  {selectedEvent.status === "draft"
+                    ? "Continue guided setup"
+                    : "Open guided setup"}
+                </Button>
+              </Link>
+            )}
           </CardContent>
         </Card>
       )}
