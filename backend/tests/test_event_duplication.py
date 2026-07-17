@@ -151,6 +151,11 @@ class SchemaValidationTests(unittest.TestCase):
         req = EventDuplicateRequest(name="x", rsvp_deadline=datetime(2027, 1, 1))
         self.assertIsNone(req.event_date)
 
+    def test_event_time_optional_and_length_bounded(self):
+        self.assertIsNone(EventDuplicateRequest(name="x").event_time)
+        with self.assertRaises(ValidationError):
+            EventDuplicateRequest(name="x", event_time="y" * 101)
+
 
 # --------------------------------------------------------------------------- #
 # Authorization
@@ -268,19 +273,94 @@ class CoreDuplicationTests(unittest.TestCase):
         # Public content reset to model defaults.
         self.assertEqual(new.title, "")
         self.assertEqual(new.venue_name, "")
-        self.assertEqual(new.event_type, "other")
+        self.assertEqual(new.contact_phone, "")  # public contact content, reset
+        # event_type is core classification — ALWAYS preserved, never reset.
+        self.assertEqual(new.event_type, "birthday")
         # Branding reset to defaults.
         self.assertEqual(new.theme_preset, "elegant")
         self.assertEqual(new.accent_color, "")
         self.assertEqual(new.background_preset, "")
         # RSVP settings reset to defaults.
         self.assertTrue(new.auto_close_rsvp)
-        self.assertEqual(new.host_notification_email, "")
+        self.assertEqual(new.host_notification_email, "")  # operational comms, reset
         self.assertTrue(new.notify_tree_exhausted)
         self.assertFalse(new.notify_waitlisted_rsvp)
         # Explicit fields still applied.
         self.assertEqual(new.name, "Aunt Ada's 61st Birthday")
         self.assertEqual(result.invite_trees_copied, 0)
+
+    def test_event_type_always_preserved(self):
+        # event_type must copy regardless of copy_public_content.
+        for copy_content in (True, False):
+            result = self._dup(copy_public_content=copy_content)
+            new = self.db.get(Event, result.event.id)
+            self.assertEqual(
+                new.event_type, "birthday", msg=f"copy_public_content={copy_content}"
+            )
+
+    def test_contact_phone_only_with_public_content(self):
+        enabled = self.db.get(Event, self._dup(copy_public_content=True).event.id)
+        self.assertEqual(enabled.contact_phone, "+2348010000000")
+        disabled = self.db.get(Event, self._dup(copy_public_content=False).event.id)
+        self.assertEqual(disabled.contact_phone, "")
+
+    def test_host_notification_email_only_with_rsvp_settings(self):
+        enabled = self.db.get(Event, self._dup(copy_rsvp_settings=True).event.id)
+        self.assertEqual(enabled.host_notification_email, "host@example.com")
+        disabled = self.db.get(Event, self._dup(copy_rsvp_settings=False).event.id)
+        self.assertEqual(disabled.host_notification_email, "")
+
+
+# --------------------------------------------------------------------------- #
+# Schedule fields (event_date / event_time / rsvp_deadline are request-driven)
+# --------------------------------------------------------------------------- #
+class ScheduleFieldTests(unittest.TestCase):
+    def setUp(self):
+        self.db = _make_db()
+        self.owner = _admin(self.db, "owner")
+        self.source = _make_source_event(self.db)  # event_time="2:00 PM"
+        self.db.commit()
+
+    def _dup(self, **over):
+        return admin_router.duplicate_event(
+            self.source.id, _payload(**over), db=self.db, admin=self.owner
+        )
+
+    def test_event_time_honoured_when_provided(self):
+        new = self.db.get(Event, self._dup(event_time="6:30 PM").event.id)
+        self.assertEqual(new.event_time, "6:30 PM")
+
+    def test_event_time_reset_when_omitted(self):
+        # _payload() sends no event_time -> reset to empty, NOT copied from source.
+        new = self.db.get(Event, self._dup().event.id)
+        self.assertEqual(new.event_time, "")
+        self.assertNotEqual(self.source.event_time, "")  # source had a value
+
+    def test_event_time_not_controlled_by_copy_groups(self):
+        # Even with every copy group ON, an omitted event_time still resets.
+        new = self.db.get(
+            Event,
+            self._dup(
+                copy_public_content=True,
+                copy_branding=True,
+                copy_rsvp_settings=True,
+                copy_invite_trees=True,
+            ).event.id,
+        )
+        self.assertEqual(new.event_time, "")
+
+    def test_schedule_fully_request_driven(self):
+        new = self.db.get(
+            Event,
+            self._dup(
+                event_date=datetime(2028, 1, 2, 10, 0, 0),
+                event_time="10:00 AM",
+                rsvp_deadline=datetime(2028, 1, 1, 12, 0, 0),
+            ).event.id,
+        )
+        self.assertEqual(new.event_date, datetime(2028, 1, 2, 10, 0, 0))
+        self.assertEqual(new.event_time, "10:00 AM")
+        self.assertEqual(new.rsvp_deadline, datetime(2028, 1, 1, 12, 0, 0))
 
     def test_source_unchanged(self):
         _make_tree(self.db, self.source, token="src-a")

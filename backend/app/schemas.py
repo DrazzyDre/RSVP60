@@ -434,14 +434,25 @@ class EventDuplicateRequest(BaseModel):
     A duplicate is ALWAYS created as a clean Draft. The option-group booleans
     decide which configuration is carried across from the source; everything
     guest- or runtime-related is regenerated regardless. ``name`` is required
-    (mirrors the event-name rule). ``event_date`` is optional — the event model
-    allows a null date — but recommended. ``rsvp_deadline`` is optional and, when
-    supplied, must not fall after the new event date. The source event's own
-    deadline is never inherited (only an explicit new one is used).
+    (mirrors the event-name rule).
+
+    Schedule fields are ALWAYS request-driven and are NEVER inherited from the
+    source or controlled by any copy-option group — this prevents a stale
+    date/time/deadline leaking into the duplicate:
+
+    * ``event_date`` — optional (the event model allows a null date) but
+      recommended.
+    * ``event_time`` — optional free-text display override (mirrors the event
+      model's ``event_time``); reset to empty when omitted.
+    * ``rsvp_deadline`` — optional and, when supplied, must not fall after the
+      new event date. The source event's own deadline is never inherited.
     """
 
     name: str = Field(..., min_length=1, max_length=200)
     event_date: datetime | None = None
+    # Free-text display override (e.g. "5:00 PM (prompt)"). Not tied to any copy
+    # group; reset to "" when omitted rather than copied from the source.
+    event_time: str | None = Field(None, max_length=100)
     rsvp_deadline: datetime | None = None
     # Safe, documented defaults: copy everything a host most likely wants when
     # cloning an event. The caller opts OUT of any group it does not want.

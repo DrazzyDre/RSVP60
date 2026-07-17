@@ -90,6 +90,16 @@ Phase 7 additions (observability + notification centre):
   * unread-count is event-scoped; marking one read decrements it; mark-all-read
     zeroes it; notification payloads leak no provider/storage secret
 
+Phase 8A additions (event duplication):
+  * owner/admin can duplicate an event (201); viewer 403, anon 401, missing 404
+  * response matches EventDuplicateResult; the duplicate has a new id, is Draft
+    and is not accepting RSVPs; event_type is preserved regardless of copy groups
+  * explicit schedule fields (name/date/time/deadline) are honoured and never
+    inherited from the source; an omitted event_time resets to empty
+  * the flyer is not copied; copied trees get fresh tokens with reset seat usage;
+    the duplicate has no guest RSVP records; the source event is left unchanged
+  * a deadline after the new event date is rejected (422)
+
 Requires the owner/admin/viewer accounts created by app.seed.
 Uses only the Python standard library (no extra deps).
 """
@@ -1163,6 +1173,184 @@ def main() -> int:
         check("mark-all-read succeeds (event scope)", s == 200, f"status={s}")
         _, uc3 = jget(f"/api/admin/notifications/unread-count?event_id={e63}&include_platform=false", token)
         check("unread count is zero after mark-all-read", uc3["unread"] == 0, str(uc3))
+
+    # --- Phase 8A: event duplication -------------------------------------
+    # A self-contained source event with two trees, a flyer and a guest RSVP,
+    # so we can prove config copies while guest/flyer/runtime state does not.
+    s, raws = post(
+        "/api/admin/events",
+        {
+            "name": "Dup Source 8A",
+            "event_type": "wedding",
+            "status": "active",
+            "event_time": "SOURCE TIME",
+            "contact_phone": "+2340000000000",
+            "host_notification_email": "dup-host@example.com",
+        },
+        otok,
+    )
+    check("create duplication source event (201)", s == 201, f"{s} {raws[:100]}")
+    SID = json.loads(raws)["id"] if s == 201 else None
+    if SID:
+        s, rt1 = post(
+            "/api/admin/invite-trees",
+            {"event_id": SID, "name": "Dup Tree A", "allocated_seats": 6, "max_extra_guests": 1},
+            token,
+        )
+        dtokA = json.loads(rt1)["token"] if s == 201 else None
+        post(
+            "/api/admin/invite-trees",
+            {"event_id": SID, "name": "Dup Tree B", "allocated_seats": 4, "max_extra_guests": 0},
+            token,
+        )
+        post_multipart(
+            f"/api/admin/events/{SID}/flyer", token, "file", "flyer.png", "image/png", PNG_1x1
+        )
+        if dtokA:
+            post(
+                f"/api/invites/{dtokA}/rsvp",
+                {"full_name": "Source Guest", "phone": "+2348123400001",
+                 "attending": True, "seats_requested": 2},
+            )
+        _, srcTrees = jget(f"/api/admin/invite-trees?event_id={SID}", token)
+        src_tokens = {t["token"] for t in srcTrees}
+        _, srcEv = jget(f"/api/admin/events/{SID}", token)
+
+        # --- Duplicate #1: owner, copy everything, explicit schedule ------
+        dup_body = {
+            "name": "Dup Result 8A",
+            "event_date": "2030-06-01T18:00:00",
+            "event_time": "6:00 PM",
+            "rsvp_deadline": "2030-05-25T23:59:59",
+            "copy_invite_trees": True,
+            "copy_branding": True,
+            "copy_public_content": True,
+            "copy_rsvp_settings": True,
+        }
+        s, rawd = post(f"/api/admin/events/{SID}/duplicate", dup_body, otok)
+        check("owner duplicates an event (201)", s == 201, f"{s} {rawd[:120]}")
+        dup = json.loads(rawd) if s == 201 else {}
+        check(
+            "duplicate response matches EventDuplicateResult shape",
+            {"event", "source_event_id", "invite_trees_copied", "flyer_copied"}.issubset(dup),
+            str(sorted(dup)),
+        )
+        dEv = dup.get("event", {})
+        DID = dEv.get("id")
+        check("duplicate has a new event id", bool(DID) and DID != SID, str(DID))
+        check("duplicate reports the source id", dup.get("source_event_id") == SID)
+        check("duplicate is a draft", dEv.get("status") == "draft", str(dEv.get("status")))
+        check(
+            "duplicate is not accepting RSVPs (draft)",
+            dEv.get("accepting_rsvps") is False
+            and dEv.get("availability_reason") == "event_draft",
+            str(dEv.get("availability_reason")),
+        )
+        check(
+            "duplicate preserves event_type regardless of copy groups",
+            dEv.get("event_type") == "wedding",
+            str(dEv.get("event_type")),
+        )
+        check(
+            "duplicate honours explicit schedule fields",
+            dEv.get("name") == "Dup Result 8A"
+            and dEv.get("event_time") == "6:00 PM"
+            and bool(dEv.get("event_date"))
+            and bool(dEv.get("rsvp_deadline")),
+            str({k: dEv.get(k) for k in ("name", "event_time", "event_date", "rsvp_deadline")}),
+        )
+        check(
+            "duplicate does not inherit the source event_time",
+            dEv.get("event_time") != "SOURCE TIME",
+        )
+        check(
+            "flyer not copied into the duplicate",
+            dup.get("flyer_copied") is False
+            and not dEv.get("flyer_storage_path")
+            and not dEv.get("flyer_url"),
+            str({"flyer_copied": dup.get("flyer_copied"), "path": dEv.get("flyer_storage_path")}),
+        )
+        check(
+            "duplicate reports the copied invite-tree count",
+            dup.get("invite_trees_copied") == len(srcTrees)
+            and dup.get("invite_trees_copied") == 2,
+            str(dup.get("invite_trees_copied")),
+        )
+
+        if DID:
+            _, dupTrees = jget(f"/api/admin/invite-trees?event_id={DID}", token)
+            dup_tokens = {t["token"] for t in dupTrees}
+            check(
+                "duplicated tree tokens differ from the source",
+                len(dupTrees) == 2 and dup_tokens.isdisjoint(src_tokens),
+                f"src={src_tokens} dup={dup_tokens}",
+            )
+            check(
+                "duplicated trees carry the source configuration",
+                {t["name"] for t in dupTrees} == {"Dup Tree A", "Dup Tree B"},
+                str({t["name"] for t in dupTrees}),
+            )
+            check(
+                "duplicated trees have reset seat usage",
+                all(t["used_seats"] == 0 for t in dupTrees),
+                str([(t["name"], t["used_seats"]) for t in dupTrees]),
+            )
+            _, dupSum = jget(f"/api/admin/dashboard/summary?event_id={DID}", token)
+            check(
+                "duplicate has no guest RSVP records",
+                dupSum["total_rsvps"] == 0,
+                str(dupSum.get("total_rsvps")),
+            )
+
+        # Source event is completely untouched by the duplication.
+        _, srcEv2 = jget(f"/api/admin/events/{SID}", token)
+        check(
+            "source event unchanged by duplication",
+            srcEv2.get("status") == "active"
+            and srcEv2.get("event_type") == "wedding"
+            and srcEv2.get("event_time") == "SOURCE TIME"
+            and srcEv2.get("tree_count") == srcEv.get("tree_count")
+            and bool(srcEv2.get("flyer_storage_path")),
+            str({k: srcEv2.get(k) for k in ("status", "event_time", "tree_count")}),
+        )
+        _, srcSum = jget(f"/api/admin/dashboard/summary?event_id={SID}", token)
+        check("source event still has its guest RSVP", srcSum["total_rsvps"] >= 1, str(srcSum.get("total_rsvps")))
+
+        # --- Duplicate #2: omit event_time + no trees ---------------------
+        s, rawd2 = post(
+            f"/api/admin/events/{SID}/duplicate",
+            {"name": "Dup NoTime 8A", "copy_invite_trees": False},
+            otok,
+        )
+        check("owner duplicates without event_time/trees (201)", s == 201, f"{s} {rawd2[:100]}")
+        dup2 = json.loads(rawd2) if s == 201 else {}
+        check(
+            "omitted event_time resets to empty (not inherited)",
+            dup2.get("event", {}).get("event_time") == "",
+            str(dup2.get("event", {}).get("event_time")),
+        )
+        check(
+            "copy_invite_trees=false yields zero trees",
+            dup2.get("invite_trees_copied") == 0,
+            str(dup2.get("invite_trees_copied")),
+        )
+
+        # --- Permission + validation matrix -------------------------------
+        s, rawd3 = post(f"/api/admin/events/{SID}/duplicate", {"name": "Dup By Admin 8A"}, token)
+        check("admin (editor) can duplicate (201)", s == 201, f"{s} {rawd3[:100]}")
+        s, _ = post(f"/api/admin/events/{SID}/duplicate", {"name": "Nope Viewer"}, vtok)
+        check("viewer cannot duplicate (403)", s == 403, str(s))
+        s, _ = post(f"/api/admin/events/{SID}/duplicate", {"name": "Nope Anon"}, None)
+        check("anon cannot duplicate (401)", s == 401, str(s))
+        s, _ = post("/api/admin/events/does-not-exist/duplicate", {"name": "Nope Missing"}, otok)
+        check("duplicate of a missing source -> 404", s == 404, str(s))
+        s, _ = post(
+            f"/api/admin/events/{SID}/duplicate",
+            {"name": "Bad Dates", "event_date": "2030-01-01T00:00:00",
+             "rsvp_deadline": "2030-02-01T00:00:00"},
+            otok,
+        )
+        check("duplicate rejects a deadline after the event date (422)", s == 422, str(s))
 
     # --- Phase 3.5: login rate limiting (run last) -----------------------
     brute = {"email": "bruteforce@gatherarc.com", "password": "wrongwrong"}

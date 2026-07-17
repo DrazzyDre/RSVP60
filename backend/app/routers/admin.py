@@ -602,22 +602,25 @@ def duplicate_event(
             name=payload.name.strip(),
             # A duplicate is always a clean Draft: not active, not public.
             status="draft",
-            # Date-specific fields come only from the request — the source's date
-            # and (possibly expired) deadline are never inherited.
+            # event_type is core event classification — always preserved,
+            # independent of any copy-option group (Wedding stays a Wedding).
+            event_type=source.event_type,
+            # Schedule fields come ONLY from the request and are never inherited
+            # from the source (no stale date/time, no possibly-expired deadline)
+            # nor tied to any copy group. Omitted event_time resets to empty.
             event_date=payload.event_date,
+            event_time=payload.event_time or "",
             rsvp_deadline=payload.rsvp_deadline,
             # Flyer intentionally left empty (see module docs / Phase 8A scope).
         )
 
         # --- Public invitation content ---------------------------------- #
         if payload.copy_public_content:
-            new_event.event_type = source.event_type
             new_event.host_or_celebrant_name = source.host_or_celebrant_name
             new_event.title = source.title
             new_event.invite_headline = source.invite_headline
             new_event.invite_message = source.invite_message
             new_event.description = source.description
-            new_event.event_time = source.event_time
             new_event.venue_name = source.venue_name
             new_event.venue_address = source.venue_address
             new_event.maps_url = source.maps_url
