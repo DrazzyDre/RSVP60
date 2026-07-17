@@ -3,19 +3,22 @@
 import * as React from "react";
 import { forwardRef, useId, useImperativeHandle, useState } from "react";
 import { ApiError } from "@/lib/api";
-import { BACKGROUND_PRESETS, THEME_PRESETS } from "@/lib/event-options";
+import { BACKGROUND_PRESETS } from "@/lib/event-options";
 import type { BackgroundPreset, ThemePreset } from "@/lib/types";
 import type { SetupStepHandle, SetupStepProps } from "@/components/admin/setup/steps";
 import { Field, StepError, patchEvent } from "@/components/admin/setup/step-utils";
 import { FlyerUpload } from "@/components/admin/EventForm";
+import { TemplateGallery } from "@/components/admin/TemplateGallery";
+import { InvitationPreview } from "@/components/admin/InvitationPreview";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 
 /**
- * Step 4: theme / branding + the flyer. Theme fields save through the event
- * update contract; the flyer reuses the shared FlyerUpload component (same
- * storage flow used everywhere) so there is no duplicated upload logic.
+ * Step 4: invitation template + branding + the flyer. The template is the
+ * persisted `theme_preset`; the gallery + live preview reflect the current
+ * (possibly unsaved) selection, and everything saves through the event-update
+ * contract. The flyer reuses the shared FlyerUpload component.
  */
 export const StepBranding = forwardRef<SetupStepHandle, SetupStepProps>(
   function StepBranding({ event, disabled }, ref) {
@@ -48,20 +51,19 @@ export const StepBranding = forwardRef<SetupStepHandle, SetupStepProps>(
 
     return (
       <div className="space-y-5">
-        <fieldset disabled={disabled} className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <Field label="Theme preset" htmlFor={`${uid}-theme`}>
-            <Select
-              id={`${uid}-theme`}
-              value={theme}
-              onChange={(e) => setTheme(e.target.value as ThemePreset)}
-            >
-              {THEME_PRESETS.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
+        {/* Template gallery */}
+        <div className="space-y-2">
+          <Label>Invitation template</Label>
+          <TemplateGallery
+            value={theme}
+            onChange={setTheme}
+            eventType={event.event_type}
+            disabled={disabled}
+          />
+        </div>
+
+        {/* Background + accent */}
+        <fieldset disabled={disabled} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Background style" htmlFor={`${uid}-bg`}>
             <Select
               id={`${uid}-bg`}
@@ -95,6 +97,15 @@ export const StepBranding = forwardRef<SetupStepHandle, SetupStepProps>(
           </Field>
         </fieldset>
 
+        {/* Live preview of the selected template */}
+        <InvitationPreview
+          event={event}
+          templateId={theme}
+          accentColor={accent}
+          background={background}
+        />
+
+        {/* Flyer */}
         <div className="space-y-3 rounded-xl border bg-muted/30 p-4">
           <Label className="text-sm font-semibold text-royal">Event flyer / image</Label>
           <p className="text-xs text-muted-foreground">

@@ -6,11 +6,8 @@ import { ImagePlus, Loader2, Trash2, UploadCloud, X } from "lucide-react";
 import { api, ApiError, resolveMediaUrl } from "@/lib/api";
 import { useUnsavedChanges } from "@/lib/hooks";
 import { fromLocalInput, toLocalInput } from "@/lib/datetime";
-import {
-  BACKGROUND_PRESETS,
-  EVENT_TYPES,
-  THEME_PRESETS,
-} from "@/lib/event-options";
+import { BACKGROUND_PRESETS, EVENT_TYPES } from "@/lib/event-options";
+import { TemplateGallery } from "@/components/admin/TemplateGallery";
 import { useConfirm } from "@/components/ui/confirm";
 import { useToast } from "@/components/ui/toast";
 import type {
@@ -408,20 +405,18 @@ export function EventForm({
         </Field>
       </div>
 
-      {/* Invite theme */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Field label="Theme preset">
-          <Select
-            value={form.theme_preset}
-            onChange={(e) => set("theme_preset", e.target.value as ThemePreset)}
-          >
-            {THEME_PRESETS.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
+      {/* Invitation template */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Invitation template</Label>
+        <TemplateGallery
+          value={form.theme_preset}
+          onChange={(id) => set("theme_preset", id)}
+          eventType={form.event_type}
+        />
+      </div>
+
+      {/* Theme background + accent */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Background style">
           <Select
             value={form.background_preset}
