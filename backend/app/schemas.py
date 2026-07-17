@@ -1,9 +1,16 @@
 """Pydantic request/response schemas."""
 
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from .roles import ROLES
 from .security import validate_password_strength
@@ -406,6 +413,64 @@ class EventAdminOut(BaseModel):
     readiness_total: int = 0
     created_at: datetime
     updated_at: datetime
+
+
+# --------------------------------------------------------------------------- #
+# Admin — event duplication (Phase 8A)
+# --------------------------------------------------------------------------- #
+def _as_utc(dt: datetime) -> datetime:
+    """Aware-UTC view of a datetime (naive values are assumed to be UTC).
+
+    Used only for the deadline-vs-date comparison so we never hit the
+    "can't compare naive and aware" error regardless of how the client
+    serialized the timestamps (e.g. a trailing ``Z`` produces an aware value).
+    """
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+
+
+class EventDuplicateRequest(BaseModel):
+    """Request body for ``POST /api/admin/events/{source_event_id}/duplicate``.
+
+    A duplicate is ALWAYS created as a clean Draft. The option-group booleans
+    decide which configuration is carried across from the source; everything
+    guest- or runtime-related is regenerated regardless. ``name`` is required
+    (mirrors the event-name rule). ``event_date`` is optional — the event model
+    allows a null date — but recommended. ``rsvp_deadline`` is optional and, when
+    supplied, must not fall after the new event date. The source event's own
+    deadline is never inherited (only an explicit new one is used).
+    """
+
+    name: str = Field(..., min_length=1, max_length=200)
+    event_date: datetime | None = None
+    rsvp_deadline: datetime | None = None
+    # Safe, documented defaults: copy everything a host most likely wants when
+    # cloning an event. The caller opts OUT of any group it does not want.
+    copy_invite_trees: bool = True
+    copy_branding: bool = True
+    copy_public_content: bool = True
+    copy_rsvp_settings: bool = True
+
+    @model_validator(mode="after")
+    def _deadline_not_after_event_date(self) -> "EventDuplicateRequest":
+        if self.rsvp_deadline is not None and self.event_date is not None:
+            if _as_utc(self.rsvp_deadline) > _as_utc(self.event_date):
+                raise ValueError("RSVP deadline cannot be after the event date.")
+        return self
+
+
+class EventDuplicateResult(BaseModel):
+    """Response for a successful event duplication.
+
+    ``event`` is the full freshly created Draft (a standard ``EventAdminOut``) so
+    the frontend can immediately select it and route to its event-scoped
+    settings. The remaining fields explain what was and was not carried across —
+    notably ``flyer_copied`` is always ``False`` for this version.
+    """
+
+    event: EventAdminOut
+    source_event_id: str
+    invite_trees_copied: int = 0
+    flyer_copied: bool = False
 
 
 # --------------------------------------------------------------------------- #

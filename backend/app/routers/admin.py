@@ -31,7 +31,7 @@ from ..database import get_db
 from ..deps import get_current_admin, log_action, require_editor, require_owner
 from ..email import service as email_service
 from .. import notifications as notif_service
-from ..models import Admin, AuditLog, Event, InviteTree, Rsvp, new_uuid
+from ..models import Admin, AuditLog, Event, InviteTree, Rsvp, new_token, new_uuid
 from ..ratelimit import (
     check_login_not_blocked,
     record_login_failure,
@@ -62,6 +62,8 @@ from ..schemas import (
     DashboardSummary,
     EventAdminOut,
     EventCreate,
+    EventDuplicateRequest,
+    EventDuplicateResult,
     EventReadiness,
     EventUpdate,
     GuestManifest,
@@ -541,6 +543,170 @@ def update_event(
     db.commit()
     db.refresh(event)
     return _serialize_event(db, event)
+
+
+# --------------------------------------------------------------------------- #
+# Event duplication (Phase 8A)
+# --------------------------------------------------------------------------- #
+def _unique_invite_token(db: Session, minted: set[str]) -> str:
+    """A fresh, collision-checked public invite token for a duplicated tree.
+
+    Uses the same cryptographically secure generator as new trees, but also
+    guards against the (astronomically unlikely) case of a clash with an existing
+    token or with another token minted in the same duplication batch — so a
+    duplicated invite link can never collide with, or be shared with, the source.
+    """
+    for _ in range(6):
+        token = new_token()
+        if token in minted:
+            continue
+        exists = db.execute(
+            select(InviteTree.id).where(InviteTree.token == token)
+        ).first()
+        if exists is None:
+            minted.add(token)
+            return token
+    # Practically unreachable; surfaces as a safe atomic failure (rolled back).
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Could not generate a unique invite link. Please try again.",
+    )
+
+
+@router.post(
+    "/events/{source_event_id}/duplicate",
+    response_model=EventDuplicateResult,
+    status_code=201,
+)
+def duplicate_event(
+    source_event_id: str,
+    payload: EventDuplicateRequest,
+    db: Session = Depends(get_db),
+    admin: Admin = Depends(require_editor),
+):
+    """Duplicate an existing event into a fresh Draft (owners/admins only).
+
+    Copies only the configuration groups the caller enables (public invitation
+    content, branding, RSVP settings) plus — optionally — invite-tree
+    configuration. Everything guest- or runtime-related is regenerated: a new id,
+    Draft status, fresh invite tokens, zero RSVPs / waitlist / check-ins, and no
+    communication / audit / notification history. The flyer image is deliberately
+    never copied (no storage-object reuse). The whole operation is atomic — on any
+    failure the new event and its trees are rolled back and the source is
+    untouched.
+    """
+    source = _get_event_or_404(db, source_event_id)
+
+    try:
+        new_event = Event(
+            name=payload.name.strip(),
+            # A duplicate is always a clean Draft: not active, not public.
+            status="draft",
+            # Date-specific fields come only from the request — the source's date
+            # and (possibly expired) deadline are never inherited.
+            event_date=payload.event_date,
+            rsvp_deadline=payload.rsvp_deadline,
+            # Flyer intentionally left empty (see module docs / Phase 8A scope).
+        )
+
+        # --- Public invitation content ---------------------------------- #
+        if payload.copy_public_content:
+            new_event.event_type = source.event_type
+            new_event.host_or_celebrant_name = source.host_or_celebrant_name
+            new_event.title = source.title
+            new_event.invite_headline = source.invite_headline
+            new_event.invite_message = source.invite_message
+            new_event.description = source.description
+            new_event.event_time = source.event_time
+            new_event.venue_name = source.venue_name
+            new_event.venue_address = source.venue_address
+            new_event.maps_url = source.maps_url
+            new_event.dress_code = source.dress_code
+            new_event.gift_details = source.gift_details
+            new_event.contact_phone = source.contact_phone
+
+        # --- Branding / presentation ------------------------------------ #
+        if payload.copy_branding:
+            new_event.theme_preset = source.theme_preset
+            new_event.accent_color = source.accent_color
+            new_event.background_preset = source.background_preset
+
+        # --- RSVP / communication settings (event config, not history) -- #
+        if payload.copy_rsvp_settings:
+            new_event.auto_close_rsvp = source.auto_close_rsvp
+            new_event.host_notification_email = source.host_notification_email
+            new_event.notify_tree_exhausted = source.notify_tree_exhausted
+            new_event.notify_waitlisted_rsvp = source.notify_waitlisted_rsvp
+
+        db.add(new_event)
+        db.flush()  # assigns new_event.id
+
+        trees_copied = 0
+        if payload.copy_invite_trees:
+            source_trees = (
+                db.execute(
+                    select(InviteTree)
+                    .where(InviteTree.event_id == source.id)
+                    .order_by(InviteTree.created_at)
+                )
+                .scalars()
+                .all()
+            )
+            minted_tokens: set[str] = set()
+            for st in source_trees:
+                db.add(
+                    InviteTree(
+                        event_id=new_event.id,
+                        name=st.name,
+                        allocated_seats=st.allocated_seats,
+                        max_extra_guests=st.max_extra_guests,
+                        # Duplicated trees start administratively usable ("active")
+                        # regardless of the source's pause state; the parent event
+                        # stays Draft, so nothing is public yet. Seat usage resets
+                        # to zero because no RSVPs are copied.
+                        status="active",
+                        token=_unique_invite_token(db, minted_tokens),
+                    )
+                )
+                trees_copied += 1
+            db.flush()
+
+        log_action(
+            db,
+            admin,
+            "event_duplicated",
+            "event",
+            new_event.id,
+            {
+                "source_event_id": source.id,
+                "duplicated_event_id": new_event.id,
+                "invite_trees_copied": trees_copied,
+                "copy_invite_trees": payload.copy_invite_trees,
+                "copy_branding": payload.copy_branding,
+                "copy_public_content": payload.copy_public_content,
+                "copy_rsvp_settings": payload.copy_rsvp_settings,
+            },
+        )
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        # Any failure (incl. a token conflict) leaves no partial duplicate.
+        db.rollback()
+        logger.exception("Event duplication failed (source=%s)", source_event_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not duplicate the event. Please try again.",
+        )
+
+    db.refresh(new_event)
+    return EventDuplicateResult(
+        event=_serialize_event(db, new_event),
+        source_event_id=source.id,
+        invite_trees_copied=trees_copied,
+        flyer_copied=False,
+    )
 
 
 # --------------------------------------------------------------------------- #
