@@ -89,6 +89,34 @@ export interface EventAdmin {
   updated_at: string;
 }
 
+// --- Event duplication (Phase 8B) --- //
+// Field names mirror the backend EventDuplicateRequest / EventDuplicateResult
+// schemas exactly — do not rename independently.
+export interface EventDuplicateRequest {
+  // Required (mirrors the event-name rule). 1–200 chars, server-authoritative.
+  name: string;
+  // Schedule fields are ALWAYS request-driven and never inherited from the
+  // source. ISO-8601 strings (UTC), or null when not supplied.
+  event_date: string | null;
+  // Free-text display override (e.g. "5:00 PM prompt"); "" resets it.
+  event_time: string;
+  rsvp_deadline: string | null;
+  // Copy-option groups. All default to true; the caller opts OUT of a group.
+  copy_invite_trees: boolean;
+  copy_branding: boolean;
+  copy_public_content: boolean;
+  copy_rsvp_settings: boolean;
+}
+
+export interface EventDuplicateResult {
+  // The freshly created Draft (a standard EventAdmin) — select + route to it.
+  event: EventAdmin;
+  source_event_id: string;
+  invite_trees_copied: number;
+  // Always false for this version: the flyer image is never copied.
+  flyer_copied: boolean;
+}
+
 export interface InvitePublic {
   event: EventPublic;
   accepting_rsvps: boolean;

@@ -14,6 +14,8 @@ import type { EventAdmin } from "@/lib/types";
 import { useEvents } from "@/components/admin/event-context";
 import { useCanEdit } from "@/components/admin/auth-context";
 import { EventForm } from "@/components/admin/EventForm";
+import { EventActionsMenu } from "@/components/admin/EventActionsMenu";
+import { DuplicateEventDialog } from "@/components/admin/DuplicateEventDialog";
 import { AvailabilityNotice } from "@/components/admin/AvailabilityNotice";
 import { PreviewInviteButton } from "@/components/admin/PreviewInviteButton";
 import { Button } from "@/components/ui/button";
@@ -38,6 +40,8 @@ export default function EventsPage() {
   const canEdit = useCanEdit();
   const toast = useToast();
   const [mode, setMode] = useState<Mode>({ kind: "list" });
+  // When set, the premium duplication dialog is open for this source event.
+  const [duplicateSource, setDuplicateSource] = useState<EventAdmin | null>(null);
 
   async function handleSaved(saved: EventAdmin) {
     await refreshEvents();
@@ -125,9 +129,17 @@ export default function EventsPage() {
               isCurrent={ev.id === selectedEventId}
               canEdit={canEdit}
               onEdit={() => setMode({ kind: "edit", event: ev })}
+              onDuplicate={() => setDuplicateSource(ev)}
             />
           ))}
         </div>
+      )}
+
+      {duplicateSource && (
+        <DuplicateEventDialog
+          source={duplicateSource}
+          onClose={() => setDuplicateSource(null)}
+        />
       )}
     </div>
   );
@@ -138,11 +150,13 @@ function EventCard({
   isCurrent,
   canEdit,
   onEdit,
+  onDuplicate,
 }: {
   ev: EventAdmin;
   isCurrent: boolean;
   canEdit: boolean;
   onEdit: () => void;
+  onDuplicate: () => void;
 }) {
   return (
     <Card className={isCurrent ? "border-royal ring-1 ring-royal/20" : ""}>
@@ -154,6 +168,7 @@ function EventCard({
               <Badge className="bg-royal text-white">Current</Badge>
             )}
             <Badge status={STATUS_BADGE[ev.status] ?? "default"}>{ev.status}</Badge>
+            <EventActionsMenu event={ev} canEdit={canEdit} onDuplicate={onDuplicate} />
           </div>
         </div>
         <p className="text-sm text-muted-foreground">

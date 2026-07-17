@@ -6,6 +6,7 @@ import Link from "next/link";
 import {
   CalendarRange,
   Check,
+  Copy,
   Image as ImageIcon,
   KeyRound,
   ListTree,
@@ -21,6 +22,7 @@ import { useEvents } from "@/components/admin/event-context";
 import { useCanEdit } from "@/components/admin/auth-context";
 import { EventReadiness } from "@/components/admin/EventReadiness";
 import { AvailabilityNotice } from "@/components/admin/AvailabilityNotice";
+import { DuplicateEventDialog } from "@/components/admin/DuplicateEventDialog";
 import { FlyerUpload } from "@/components/admin/EventForm";
 import { PreviewInviteButton } from "@/components/admin/PreviewInviteButton";
 import { Button } from "@/components/ui/button";
@@ -33,6 +35,7 @@ export default function SettingsPage() {
   const { selectedEvent } = useEvents();
   const canEdit = useCanEdit();
   const [admin, setAdmin] = useState<Admin | null>(null);
+  const [duplicating, setDuplicating] = useState(false);
 
   useEffect(() => {
     api.get<Admin>("/api/admin/me", true).then(setAdmin).catch(() => {});
@@ -93,11 +96,22 @@ export default function SettingsPage() {
                 reason={selectedEvent.availability_reason}
                 className="mt-1"
               />
-              <Link href="/admin/events">
-                <Button variant="outline" size="sm" className="mt-2">
-                  Edit event details
-                </Button>
-              </Link>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Link href="/admin/events">
+                  <Button variant="outline" size="sm">
+                    Edit event details
+                  </Button>
+                </Link>
+                {canEdit && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setDuplicating(true)}
+                  >
+                    <Copy className="h-4 w-4" /> Duplicate event
+                  </Button>
+                )}
+              </div>
             </>
           ) : (
             <p className="text-muted-foreground">No event selected.</p>
@@ -179,6 +193,13 @@ export default function SettingsPage() {
           </p>
         </CardContent>
       </Card>
+
+      {duplicating && selectedEvent && canEdit && (
+        <DuplicateEventDialog
+          source={selectedEvent}
+          onClose={() => setDuplicating(false)}
+        />
+      )}
     </div>
   );
 }
