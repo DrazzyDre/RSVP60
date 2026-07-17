@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
 import { eventTypeLabel, formatDate } from "@/lib/utils";
+import { fromLocalInput } from "@/lib/datetime";
 
 // Reuse the same status → badge palette as the Events portfolio.
 const STATUS_BADGE: Record<string, string> = {
@@ -29,14 +30,6 @@ const STATUS_BADGE: Record<string, string> = {
 // Mirror the backend field limits so we can fail fast with clear messages.
 const NAME_MAX = 200;
 const TIME_MAX = 100;
-
-// Value for <input type="datetime-local"> (local time) -> ISO (UTC) string, or
-// null when empty. Matches the create/edit flow's semantics exactly so the
-// duplicate never introduces a timezone regression.
-function fromLocalInput(value: string): string | null {
-  if (!value) return null;
-  return new Date(value).toISOString();
-}
 
 type FormState = {
   name: string;

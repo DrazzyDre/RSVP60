@@ -93,7 +93,7 @@ export default function InvitePage() {
   const Render = template.Render;
 
   return (
-    <main className="min-h-screen pb-16" style={{ background: theme.pageBackground }}>
+    <main className="min-h-screen overflow-x-clip pb-16" style={{ background: theme.pageBackground }}>
       <Render
         event={event}
         invite={invite}

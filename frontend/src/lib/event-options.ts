@@ -2,11 +2,7 @@
 // Single-sourced so the create form and the wizard can never present different
 // choices for the same backend field.
 
-import type {
-  BackgroundPreset,
-  EventType,
-  ThemePreset,
-} from "@/lib/types";
+import type { BackgroundPreset, EventType } from "@/lib/types";
 
 export const EVENT_TYPES: EventType[] = [
   "birthday",
@@ -18,14 +14,6 @@ export const EVENT_TYPES: EventType[] = [
   "dinner",
   "conference",
   "other",
-];
-
-export const THEME_PRESETS: { value: ThemePreset; label: string }[] = [
-  { value: "elegant", label: "Elegant (royal & gold)" },
-  { value: "classic", label: "Classic (timeless navy)" },
-  { value: "joyful", label: "Joyful (warm & bright)" },
-  { value: "minimal", label: "Minimal (clean & simple)" },
-  { value: "formal", label: "Formal (deep & refined)" },
 ];
 
 export const BACKGROUND_PRESETS: { value: BackgroundPreset; label: string }[] = [
